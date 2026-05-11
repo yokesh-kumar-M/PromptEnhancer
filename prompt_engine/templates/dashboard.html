@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — PromptEnhancer Pro{% endblock %}
+
+{% block content %}
+<div style="max-width: 1100px; margin: 0 auto; padding: 36px 24px;">
+
+  <!-- ===== GREETING ===== -->
+  <div style="margin-bottom: 32px;">
+    <h1 style="font-size: 24px; font-weight: 700; letter-spacing: -0.02em;">
+      Welcome back, {{ user.first_name|default:user.email }} 👋
+    </h1>
+    <p style="color: #71717a; font-size: 14px; margin-top: 4px;">Here's your prompt enhancement activity overview.</p>
+  </div>
+
+  <!-- ===== STATS CARDS ===== -->
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px;">
+    <div class="card" style="padding: 20px 24px;">
+      <p style="font-size: 12px; color: #52525b; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">Total Enhancements</p>
+      <p style="font-size: 36px; font-weight: 800; letter-spacing: -0.02em; color: #a78bfa;">{{ stats.total }}</p>
+    </div>
+    <div class="card" style="padding: 20px 24px;">
+      <p style="font-size: 12px; color: #52525b; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">Today</p>
+      <p style="font-size: 36px; font-weight: 800; letter-spacing: -0.02em; color: #34d399;">{{ stats.today }}</p>
+    </div>
+    <div class="card" style="padding: 20px 24px;">
+      <p style="font-size: 12px; color: #52525b; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">This Week</p>
+      <p style="font-size: 36px; font-weight: 800; letter-spacing: -0.02em; color: #60a5fa;">{{ stats.week }}</p>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 32px;">
+
+    <!-- ===== BY MODE ===== -->
+    <div class="card" style="padding: 24px;">
+      <h2 style="font-size: 14px; font-weight: 600; margin-bottom: 20px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.06em;">By Enhancement Mode</h2>
+      {% if by_action %}
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          {% for item in by_action %}
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 12px; color: #71717a; width: 96px; flex-shrink: 0;">{{ item.name }}</span>
+            <div style="flex: 1; background: #27272a; border-radius: 4px; height: 6px; overflow: hidden;">
+              <div style="height: 6px; border-radius: 4px; background: linear-gradient(90deg, #7c3aed, #a78bfa); width: {{ item.pct }}%;"></div>
+            </div>
+            <span style="font-size: 12px; color: #a1a1aa; width: 28px; text-align: right; flex-shrink: 0;">{{ item.count }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div style="text-align: center; padding: 24px 0; color: #3f3f46; font-size: 13px;">No enhancements yet. Start using the extension!</div>
+      {% endif %}
+    </div>
+
+    <!-- ===== BY PROVIDER ===== -->
+    <div class="card" style="padding: 24px;">
+      <h2 style="font-size: 14px; font-weight: 600; margin-bottom: 20px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.06em;">By AI Provider</h2>
+      {% if by_provider %}
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          {% for provider, count in by_provider.items %}
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: {% if provider == 'groq' %}rgba(245,158,11,0.15){% else %}rgba(59,130,246,0.15){% endif %};">
+              <span style="font-size: 14px;">{% if provider == 'groq' %}⚡{% else %}✦{% endif %}</span>
+            </div>
+            <div style="flex: 1;">
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 3px; text-transform: capitalize;">{{ provider }}</div>
+              <div style="font-size: 11px; color: #52525b;">{{ count }} enhancement{{ count|pluralize }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div style="text-align: center; padding: 24px 0; color: #3f3f46; font-size: 13px;">Configure your API key in the extension to get started.</div>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- ===== RECENT ACTIVITY ===== -->
+  <div class="card" style="padding: 24px; margin-bottom: 32px;">
+    <h2 style="font-size: 14px; font-weight: 600; margin-bottom: 20px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.06em;">Recent Activity</h2>
+    {% if recent %}
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 1px solid #27272a;">
+              <th style="text-align: left; padding: 8px 12px 10px; color: #52525b; font-weight: 500;">Mode</th>
+              <th style="text-align: left; padding: 8px 12px 10px; color: #52525b; font-weight: 500;">Provider</th>
+              <th style="text-align: left; padding: 8px 12px 10px; color: #52525b; font-weight: 500;">Model</th>
+              <th style="text-align: left; padding: 8px 12px 10px; color: #52525b; font-weight: 500;">Site</th>
+              <th style="text-align: right; padding: 8px 12px 10px; color: #52525b; font-weight: 500;">Chars</th>
+              <th style="text-align: right; padding: 8px 12px 10px; color: #52525b; font-weight: 500;">When</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in recent %}
+            <tr style="border-bottom: 1px solid #18181b;">
+              <td style="padding: 10px 12px;">
+                <span class="badge badge-violet">{{ log.action }}</span>
+              </td>
+              <td style="padding: 10px 12px; color: #a1a1aa; text-transform: capitalize;">{{ log.provider }}</td>
+              <td style="padding: 10px 12px; color: #71717a; font-size: 11px; font-family: monospace;">{{ log.model_used|default:"—" }}</td>
+              <td style="padding: 10px 12px; color: #71717a;">{{ log.domain|default:"—" }}</td>
+              <td style="padding: 10px 12px; color: #52525b; text-align: right;">{{ log.enhanced_char_count }}</td>
+              <td style="padding: 10px 12px; color: #52525b; text-align: right; white-space: nowrap; font-size: 11px;">{{ log.created_at|timesince }} ago</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div style="text-align: center; padding: 32px; color: #3f3f46; font-size: 14px;">
+        <p style="margin-bottom: 8px; font-size: 20px;">✨</p>
+        <p>No activity yet. Install the extension and enhance your first prompt!</p>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- ===== SETUP GUIDE ===== -->
+  <div class="card" style="padding: 28px; margin-bottom: 32px;">
+    <h2 style="font-size: 16px; font-weight: 700; margin-bottom: 6px;">Setup Guide</h2>
+    <p style="color: #71717a; font-size: 13px; margin-bottom: 24px;">Complete these steps to start enhancing prompts.</p>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+
+      <div style="display: flex; gap: 14px; align-items: flex-start;">
+        <div style="width: 28px; height: 28px; background: rgba(139,92,246,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 13px; font-weight: 700; color: #a78bfa;">1</div>
+        <div>
+          <p style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Install the Chrome Extension</p>
+          <p style="font-size: 13px; color: #71717a; margin-bottom: 6px;">Download the extension package and load it as an unpacked extension in Chrome.</p>
+          <a href="{{ backend_url }}/api/templates/" style="font-size: 12px; color: #8b5cf6; text-decoration: none;">How to install →</a>
+        </div>
+      </div>
+
+      <div style="border-left: 1px solid #27272a; margin-left: 14px; height: 12px;"></div>
+
+      <div style="display: flex; gap: 14px; align-items: flex-start;">
+        <div style="width: 28px; height: 28px; background: rgba(139,92,246,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 13px; font-weight: 700; color: #a78bfa;">2</div>
+        <div>
+          <p style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Enter Your Invite Code in the Extension</p>
+          <p style="font-size: 13px; color: #71717a; margin-bottom: 4px;">Click the extension icon → enter your invite code to activate access.</p>
+          <p style="font-size: 12px; font-family: monospace; background: #09090b; display: inline-block; padding: 4px 10px; border-radius: 6px; color: #a78bfa; border: 1px solid #27272a;">
+            {% if profile.invite_code %}{{ profile.invite_code.code }}{% else %}Check your invite email{% endif %}
+          </p>
+        </div>
+      </div>
+
+      <div style="border-left: 1px solid #27272a; margin-left: 14px; height: 12px;"></div>
+
+      <div style="display: flex; gap: 14px; align-items: flex-start;">
+        <div style="width: 28px; height: 28px; background: rgba(139,92,246,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 13px; font-weight: 700; color: #a78bfa;">3</div>
+        <div>
+          <p style="font-size: 14px; font-weight: 600; margin-bottom: 4px;">Add Your Free API Key</p>
+          <p style="font-size: 13px; color: #71717a; margin-bottom: 8px;">
+            Open extension → Settings tab → choose Groq or Gemini → paste your API key.
+          </p>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <a href="https://console.groq.com/keys" target="_blank" rel="noopener noreferrer"
+               style="font-size: 12px; color: #fbbf24; text-decoration: none; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); padding: 4px 10px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+              ⚡ Get Groq API key (fastest) →
+            </a>
+            <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer"
+               style="font-size: 12px; color: #60a5fa; text-decoration: none; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); padding: 4px 10px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px;">
+              ✦ Get Gemini API key →
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-left: 1px solid #27272a; margin-left: 14px; height: 12px;"></div>
+
+      <div style="display: flex; gap: 14px; align-items: flex-start;">
+        <div style="width: 28px; height: 28px; background: rgba(16,185,129,0.15); border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px;">✓</div>
+        <div>
+          <p style="font-size: 14px; font-weight: 600; margin-bottom: 4px; color: #34d399;">You're Ready!</p>
+          <p style="font-size: 13px; color: #71717a;">Go to ChatGPT, Claude, Gemini, or any AI chat. Click the <strong style="color: #a78bfa;">✨ sparkle button</strong> that appears on the text input to enhance any prompt instantly.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PLATFORM LINKS ===== -->
+  <div class="card" style="padding: 24px;">
+    <h2 style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.06em;">All Platforms</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+      <div style="background: #09090b; border: 1px solid #27272a; border-radius: 10px; padding: 16px;">
+        <div style="font-size: 20px; margin-bottom: 8px;">🧩</div>
+        <p style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Chrome Extension</p>
+        <p style="font-size: 12px; color: #71717a;">Works on ChatGPT, Claude, Gemini & any website</p>
+      </div>
+      <div style="background: #09090b; border: 1px solid #27272a; border-radius: 10px; padding: 16px;">
+        <div style="font-size: 20px; margin-bottom: 8px;">💻</div>
+        <p style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">VS Code Extension</p>
+        <p style="font-size: 12px; color: #71717a;">Ctrl+Shift+E to enhance, Ctrl+Shift+K for code prompts</p>
+      </div>
+      <div style="background: #09090b; border: 1px solid #27272a; border-radius: 10px; padding: 16px;">
+        <div style="font-size: 20px; margin-bottom: 8px;">⌨️</div>
+        <p style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">CLI Tool</p>
+        <p style="font-size: 12px; color: #71717a;"><code style="background: #18181b; padding: 1px 5px; border-radius: 3px; font-size: 11px;">pe "your prompt"</code> in any terminal</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

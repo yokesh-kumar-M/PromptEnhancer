@@ -1,26 +1,48 @@
 console.log('[PromptEnhancer Pro] Background service worker initialized.');
 
+// ======================== CONFIG ========================
+
+const DEFAULT_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+
+// ======================== SYSTEM PROMPTS ========================
+
+const SYSTEM_PROMPTS: Record<string, string> = {
+  Enhance:
+    "You are a world-class prompt engineer. Transform the user's vague request into a highly structured, context-rich prompt optimized for AI models. Add clear context, constraints, and desired output format. Include role definition, task description, and success criteria. Use markdown formatting where appropriate. Return ONLY the enhanced prompt, no explanations or preambles. Make it 3-5x more detailed than the original.",
+  Professional:
+    "You are an expert business communications specialist. Rewrite the user's text to be highly professional, articulate, and suitable for corporate environments. Use formal but natural language. Maintain the original meaning. Fix grammar, tone, and structure. Return ONLY the rewritten text. Keep it concise yet impactful.",
+  Shorten:
+    "You are a concise writing expert. Shorten the user's text while preserving ALL key information. Cut unnecessary words and redundancies. Use active voice. Maintain the core message. Return ONLY the shortened text. Aim for 40-60% of original length.",
+  Code:
+    "You are a senior software architect. Transform the user's request into a precise, technical prompt optimized for code generation. Specify programming language, framework, and version if known. Include input/output specifications. Add error handling and edge case requirements. Request code documentation and type annotations. Return ONLY the enhanced technical prompt.",
+  Creative:
+    "You are a creative writing virtuoso. Transform the user's text into something vivid, imaginative, and emotionally engaging. Use sensory language and powerful metaphors. Add emotional depth and narrative flair. Maintain the original intent. Return ONLY the enhanced text. Make it memorable and share-worthy.",
+};
+
 // ======================== INSTALLATION ========================
 
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[PromptEnhancer Pro] Extension installed:', details.reason);
-  
-  // Create context menu
+
   chrome.contextMenus.create({
     id: 'enhance-selection',
     title: '✨ Enhance with PromptEnhancer Pro',
     contexts: ['selection'],
   });
-  
-  // Seed default templates if first install
+
   if (details.reason === 'install') {
     chrome.storage.local.set({
       promptHistory: [],
       customTemplates: DEFAULT_TEMPLATES,
       settings: {
-        model: 'gemini-2.5-flash',
         autoDetect: true,
         historyLimit: 50,
+        backendUrl: DEFAULT_BACKEND_URL,
+      },
+      apiSettings: {
+        provider: 'gemini',
+        apiKey: '',
+        model: '',
       },
     });
   }
@@ -46,167 +68,173 @@ const DEFAULT_TEMPLATES = [
   { id: '15', shortcut: '//linkedin', title: 'LinkedIn Post', content: 'Write a professional LinkedIn post about the following. Include a hook, story, insight, and CTA: ', category: 'social' },
 ];
 
-// ======================== SYSTEM PROMPTS ========================
+// ======================== BYOK API CALLERS ========================
 
-const SYSTEM_PROMPTS: Record<string, string> = {
-  Enhance: `You are a world-class prompt engineer. Transform the user's vague request into a highly structured, context-rich prompt optimized for AI models.
-
-Rules:
-- Add clear context, constraints, and desired output format
-- Include role definition, task description, and success criteria  
-- Use markdown formatting where appropriate
-- Return ONLY the enhanced prompt, no explanations or preambles
-- Make it 3-5x more detailed than the original`,
-
-  Professional: `You are an expert business communications specialist. Rewrite the user's text to be highly professional, articulate, and suitable for corporate environments.
-
-Rules:
-- Use formal but natural language
-- Maintain the original meaning
-- Fix grammar, tone, and structure
-- Return ONLY the rewritten text
-- Keep it concise yet impactful`,
-
-  Shorten: `You are a concise writing expert. Shorten the user's text while preserving ALL key information and meaning.
-
-Rules:
-- Cut unnecessary words and redundancies
-- Use active voice
-- Maintain the core message
-- Return ONLY the shortened text
-- Aim for 40-60% of original length`,
-
-  Code: `You are a senior software architect. Transform the user's request into a precise, technical prompt optimized for code generation.
-
-Rules:
-- Specify programming language, framework, and version
-- Include input/output specifications
-- Add error handling and edge case requirements
-- Request code documentation and type annotations
-- Return ONLY the enhanced technical prompt`,
-
-  Creative: `You are a creative writing virtuoso. Transform the user's text into something vivid, imaginative, and emotionally engaging.
-
-Rules:
-- Use sensory language and powerful metaphors
-- Add emotional depth and narrative flair
-- Maintain the original intent
-- Return ONLY the enhanced text
-- Make it memorable and share-worthy`,
-};
-
-// ======================== STREAMING API ========================
-
-async function streamGeminiAPI(apiKey: string, prompt: string, action: string, port: chrome.runtime.Port) {
-  const model = 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}`;
-  
-  const systemInstruction = SYSTEM_PROMPTS[action] || SYSTEM_PROMPTS.Enhance;
-
-  const payload = {
-    contents: [{
-      parts: [{ text: prompt }]
-    }],
-    systemInstruction: {
-      parts: [{ text: systemInstruction }]
+async function callGroqEnhance(
+  apiKey: string,
+  text: string,
+  action: string,
+  model: string,
+): Promise<string> {
+  const m = model || 'llama-3.3-70b-versatile';
+  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
     },
-    generationConfig: {
+    body: JSON.stringify({
+      model: m,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPTS[action] || SYSTEM_PROMPTS.Enhance },
+        { role: 'user', content: text },
+      ],
       temperature: action === 'Creative' ? 0.9 : 0.7,
-      topP: 0.95,
-      maxOutputTokens: 4096,
-    },
-  };
+      max_tokens: 4096,
+    }),
+  });
 
+  const data = await response.json();
+  if (!response.ok) {
+    const msg = data.error?.message || `Groq API error ${response.status}`;
+    if (response.status === 401) throw new Error('Invalid Groq API key. Check Settings.');
+    if (response.status === 429) throw new Error('Groq rate limit reached. Try again in a moment.');
+    throw new Error(msg);
+  }
+  return data.choices[0].message.content;
+}
+
+async function callGeminiEnhance(
+  apiKey: string,
+  text: string,
+  action: string,
+  model: string,
+): Promise<string> {
+  const m = model || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: SYSTEM_PROMPTS[action] || SYSTEM_PROMPTS.Enhance }] },
+      contents: [{ parts: [{ text }] }],
+      generationConfig: {
+        temperature: action === 'Creative' ? 0.9 : 0.7,
+        maxOutputTokens: 4096,
+      },
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    const msg = data.error?.message || `Gemini API error ${response.status}`;
+    if (response.status === 400 && msg.includes('API_KEY')) throw new Error('Invalid Gemini API key. Check Settings.');
+    if (response.status === 429) throw new Error('Gemini quota exceeded. Try again later or switch to Groq.');
+    throw new Error(msg);
+  }
+  return data.candidates[0].content.parts[0].text;
+}
+
+// ======================== USAGE LOGGING ========================
+
+async function logUsage(
+  backendUrl: string,
+  inviteCode: string,
+  action: string,
+  provider: string,
+  model: string,
+  originalLen: number,
+  enhancedLen: number,
+  domain: string,
+): Promise<void> {
   try {
-    const response = await fetch(url, {
+    await fetch(`${backendUrl}/api/log-usage/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        invite_code: inviteCode,
+        action,
+        provider,
+        model,
+        original_len: originalLen,
+        enhanced_len: enhancedLen,
+        domain,
+      }),
     });
-
-    if (!response.ok) {
-      const err = await response.json();
-      const errorMsg = err.error?.message || `HTTP ${response.status}`;
-      
-      if (response.status === 429) {
-        throw new Error('Rate limit exceeded. Please wait a moment and try again.');
-      } else if (response.status === 403) {
-        throw new Error('API key is invalid or has insufficient permissions. Check your key in the popup.');
-      }
-      throw new Error(errorMsg);
-    }
-
-    if (!response.body) {
-      throw new Error('Streaming not supported in this environment.');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder('utf-8');
-    let fullTextSoFar = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      
-      // Extract text from streaming JSON chunks
-      const matches = [...chunk.matchAll(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)];
-      
-      for (const match of matches) {
-        try {
-          const unescaped = JSON.parse(`"${match[1]}"`);
-          fullTextSoFar += unescaped;
-        } catch(_) {
-          // ignore malformed chunks
-        }
-      }
-      
-      if (fullTextSoFar) {
-        port.postMessage({ type: 'chunk', text: fullTextSoFar });
-      }
-    }
-    
-    port.postMessage({ type: 'done', text: fullTextSoFar });
-
-  } catch (error: any) {
-    port.postMessage({ 
-      type: 'error', 
-      error: error.message || 'Failed to enhance prompt. Check your API key and try again.',
-    });
+  } catch {
+    // Fire-and-forget: don't fail the user experience if logging fails
   }
 }
 
-// ======================== MESSAGE HANDLERS ========================
+// ======================== ENHANCE PORT HANDLER ========================
 
-// Streaming connections
 chrome.runtime.onConnect.addListener((port) => {
-  if (port.name === 'enhance-stream') {
-    port.onMessage.addListener(async (msg) => {
-      if (msg.action === 'startStream') {
-        chrome.storage.local.get(['geminiApiKey'], async (result) => {
-          const apiKey = result.geminiApiKey as string;
-          if (!apiKey) {
-            port.postMessage({ 
-              type: 'error', 
-              error: 'No API key configured. Click the extension icon to set your Gemini API key.',
-            });
-            return;
-          }
-          await streamGeminiAPI(apiKey, msg.text, msg.promptType, port);
+  if (port.name !== 'enhance-stream') return;
+
+  const domain = (() => {
+    try {
+      return port.sender?.tab?.url ? new URL(port.sender.tab.url).hostname : '';
+    } catch {
+      return '';
+    }
+  })();
+
+  port.onMessage.addListener(async (msg) => {
+    if (msg.action !== 'startStream') return;
+
+    chrome.storage.local.get(['inviteCode', 'settings', 'apiSettings'], async (result) => {
+      const inviteCode = (result.inviteCode as string) || '';
+      const settings = (result.settings as Record<string, unknown>) || {};
+      const backendUrl = (settings.backendUrl as string) || DEFAULT_BACKEND_URL;
+      const apiSettings = (result.apiSettings as { provider?: string; apiKey?: string; model?: string }) || {};
+      const provider = apiSettings.provider || 'gemini';
+      const apiKey = apiSettings.apiKey || '';
+      const model = apiSettings.model || '';
+
+      if (!inviteCode) {
+        port.postMessage({
+          type: 'error',
+          error: 'No invite code set. Click the extension icon and enter your code.',
         });
+        return;
+      }
+
+      if (!apiKey) {
+        port.postMessage({
+          type: 'error',
+          error: 'No API key configured. Open the extension → Settings tab → add your Groq or Gemini key.',
+        });
+        return;
+      }
+
+      try {
+        let enhanced: string;
+
+        if (provider === 'groq') {
+          enhanced = await callGroqEnhance(apiKey, msg.text, msg.promptType, model);
+        } else {
+          enhanced = await callGeminiEnhance(apiKey, msg.text, msg.promptType, model);
+        }
+
+        port.postMessage({ type: 'done', text: enhanced });
+
+        const resolvedModel = model || (provider === 'groq' ? 'llama-3.3-70b-versatile' : 'gemini-2.0-flash');
+        logUsage(backendUrl, inviteCode, msg.promptType, provider, resolvedModel, msg.text.length, enhanced.length, domain);
+
+      } catch (err: any) {
+        port.postMessage({ type: 'error', error: err.message || 'Enhancement failed. Check your API key in Settings.' });
       }
     });
-  }
+  });
 });
 
-// One-shot messages
+// ======================== MESSAGE HANDLERS ========================
+
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'saveHistory') {
     chrome.storage.local.get(['promptHistory', 'settings'], (result) => {
       const history = (result.promptHistory || []) as any[];
       const settings = (result.settings || { historyLimit: 50 }) as { historyLimit: number };
-      
       history.unshift({
         id: Date.now().toString(),
         original: request.original,
@@ -215,22 +243,20 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         timestamp: Date.now(),
         domain: request.domain || 'unknown',
       });
-      
-      // Trim to limit
       const trimmed = history.slice(0, settings.historyLimit || 50);
       chrome.storage.local.set({ promptHistory: trimmed });
     });
     sendResponse({ success: true });
     return true;
   }
-  
+
   if (request.action === 'getTemplates') {
     chrome.storage.local.get(['customTemplates'], (result) => {
       sendResponse({ templates: result.customTemplates || DEFAULT_TEMPLATES });
     });
     return true;
   }
-  
+
   if (request.action === 'getHistory') {
     chrome.storage.local.get(['promptHistory'], (result) => {
       sendResponse({ history: result.promptHistory || [] });
@@ -243,7 +269,26 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     sendResponse({ success: true });
     return true;
   }
-  
+
+  if (request.action === 'validateInvite') {
+    chrome.storage.local.get(['settings'], async (result) => {
+      const settings = (result.settings as Record<string, unknown>) || {};
+      const backendUrl = (settings.backendUrl as string) || DEFAULT_BACKEND_URL;
+      try {
+        const resp = await fetch(`${backendUrl}/api/validate-invite/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: request.code }),
+        });
+        const data = await resp.json();
+        sendResponse(data);
+      } catch (err: any) {
+        sendResponse({ valid: false, message: `Cannot reach server: ${err.message}` });
+      }
+    });
+    return true;
+  }
+
   return false;
 });
 

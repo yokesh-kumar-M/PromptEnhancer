@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}PromptEnhancer Pro — AI Prompt Co-Pilot{% endblock %}
+
+{% block content %}
+
+<!-- ===== HERO ===== -->
+<section style="max-width: 1100px; margin: 0 auto; padding: 80px 24px 60px; text-align: center;">
+  <div style="margin-bottom: 20px;">
+    <span class="badge badge-violet">Invite-Only · BYOK · v2.0</span>
+  </div>
+
+  <h1 style="font-size: clamp(36px, 6vw, 64px); font-weight: 800; line-height: 1.1; margin-bottom: 20px; letter-spacing: -0.03em;">
+    Supercharge Your<br>
+    <span class="gradient-text">AI Prompts — Instantly</span>
+  </h1>
+
+  <p style="font-size: clamp(16px, 2vw, 20px); color: #71717a; max-width: 560px; margin: 0 auto 36px; line-height: 1.6;">
+    Transform vague requests into powerful, structured AI instructions.
+    Works on ChatGPT, Claude, Gemini and more. No subscription — use your own free API key.
+  </p>
+
+  <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+    <a href="{% url 'request_access' %}" class="btn-primary" style="padding: 14px 28px; font-size: 16px;">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Request Access
+    </a>
+    <a href="{% url 'login' %}" class="btn-secondary" style="padding: 14px 28px; font-size: 16px;">
+      Sign In →
+    </a>
+  </div>
+
+  <p style="margin-top: 20px; font-size: 12px; color: #3f3f46;">
+    Already have an invite code? <a href="{% url 'register' %}" style="color: #8b5cf6; text-decoration: none;">Create your account →</a>
+  </p>
+</section>
+
+<!-- ===== PLATFORM SUPPORT ===== -->
+<section style="max-width: 1100px; margin: 0 auto; padding: 0 24px 60px;">
+  <p style="text-align: center; font-size: 12px; font-weight: 600; color: #52525b; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 20px;">Works on all major AI platforms</p>
+  <div style="display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 24px;">
+    {% for platform in "ChatGPT,Claude,Gemini,Perplexity,Copilot,Poe,Any site"|split:"," %}
+    <span style="font-size: 13px; color: #52525b; display: flex; align-items: center; gap: 6px;">
+      <span style="width: 5px; height: 5px; background: #3f3f46; border-radius: 50%; display: inline-block;"></span>
+      {{ platform }}
+    </span>
+    {% endfor %}
+  </div>
+</section>
+
+<!-- ===== FEATURES ===== -->
+<section style="max-width: 1100px; margin: 0 auto; padding: 0 24px 80px;">
+  <h2 style="text-align: center; font-size: 28px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.02em;">Everything you need to write better AI prompts</h2>
+  <p style="text-align: center; color: #71717a; font-size: 15px; margin-bottom: 40px;">Built to replace expensive subscriptions with a free, open, self-hosted alternative</p>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;">
+
+    <div class="card" style="padding: 24px;">
+      <div style="width: 40px; height: 40px; background: rgba(139,92,246,0.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="1.5"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+      </div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">5 Enhancement Modes</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Enhance, Professional, Shorten, Code, Creative — one click transforms any prompt into a powerful AI instruction.</p>
+    </div>
+
+    <div class="card" style="padding: 24px;">
+      <div style="width: 40px; height: 40px; background: rgba(59,130,246,0.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="1.5"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M2 10h20"/></svg>
+      </div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Bring Your Own API Key</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Use your free Groq or Gemini API key. No subscription, no usage limits. Groq's free tier gives 14,400 requests/day.</p>
+    </div>
+
+    <div class="card" style="padding: 24px;">
+      <div style="width: 40px; height: 40px; background: rgba(16,185,129,0.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.5"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+      </div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Usage Dashboard</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Track every enhancement — total count, by mode, by provider, domain breakdown. Full visibility into your prompt workflow.</p>
+    </div>
+
+    <div class="card" style="padding: 24px;">
+      <div style="width: 40px; height: 40px; background: rgba(245,158,11,0.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Multi-Platform</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Chrome extension for AI chats, VS Code extension for coding, Python CLI for terminal workflows. One tool, everywhere.</p>
+    </div>
+
+    <div class="card" style="padding: 24px;">
+      <div style="width: 40px; height: 40px; background: rgba(236,72,153,0.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f472b6" stroke-width="1.5"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Invite-Only Access</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Exclusive, invite-gated community. Request access and receive a personal invite code by email. Share with trusted collaborators.</p>
+    </div>
+
+    <div class="card" style="padding: 24px;">
+      <div style="width: 40px; height: 40px; background: rgba(20,184,166,0.15); border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="1.5"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+      </div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">15+ Prompt Templates</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Built-in shortcuts like //code, //debug, //email, //tweet and more. Type them anywhere to insert optimized prompt starters.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ===== HOW IT WORKS ===== -->
+<section style="max-width: 1100px; margin: 0 auto; padding: 0 24px 80px;">
+  <h2 style="text-align: center; font-size: 28px; font-weight: 700; margin-bottom: 48px; letter-spacing: -0.02em;">Up and running in 3 steps</h2>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 0; max-width: 780px; margin: 0 auto;">
+
+    <div style="text-align: center; padding: 0 24px;">
+      <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #7c3aed, #4f46e5); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 20px; font-weight: 700; color: #fff;">1</div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Request Access</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Submit your email. Receive a personal invite code once approved.</p>
+    </div>
+
+    <div style="text-align: center; padding: 0 24px; position: relative;">
+      <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #7c3aed, #4f46e5); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 20px; font-weight: 700; color: #fff;">2</div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Set Up in 2 Minutes</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Register, install the extension, add your free API key (Groq or Gemini).</p>
+    </div>
+
+    <div style="text-align: center; padding: 0 24px;">
+      <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #7c3aed, #4f46e5); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 20px; font-weight: 700; color: #fff;">3</div>
+      <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 8px;">Enhance Every Prompt</h3>
+      <p style="font-size: 13px; color: #71717a; line-height: 1.6;">Click ✨ on any AI chat. Pick your mode. Watch your prompt transform instantly.</p>
+    </div>
+
+  </div>
+</section>
+
+<!-- ===== CTA ===== -->
+<section style="max-width: 1100px; margin: 0 auto; padding: 0 24px 80px;">
+  <div class="card glow-violet" style="padding: 48px 32px; text-align: center; background: linear-gradient(135deg, rgba(124,58,237,0.08), rgba(79,70,229,0.05));">
+    <h2 style="font-size: 28px; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.02em;">Ready to write better AI prompts?</h2>
+    <p style="color: #71717a; font-size: 15px; margin-bottom: 28px; max-width: 460px; margin-left: auto; margin-right: auto;">
+      Join the invite-only community. BYOK means no subscriptions — just unlimited, fast AI enhancement with your own free API key.
+    </p>
+    <a href="{% url 'request_access' %}" class="btn-primary" style="padding: 14px 32px; font-size: 16px;">Request Invite →</a>
+  </div>
+</section>
+
+{% endblock %}

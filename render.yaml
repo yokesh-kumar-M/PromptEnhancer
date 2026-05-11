@@ -2,7 +2,7 @@ services:
   - type: web
     name: PromptEnhancer-Backend
     env: python
-    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate && python manage.py create_admin"
     startCommand: "gunicorn prompt_enhancer_backend.wsgi:application"
     envVars:
       - key: DEBUG

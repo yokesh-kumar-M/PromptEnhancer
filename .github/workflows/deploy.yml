@@ -28,17 +28,20 @@ jobs:
       - name: Build Extension
         working-directory: extension-react
         run: npm run build
+        env:
+          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL }}
 
       - name: Zip Extension
         run: |
           cd extension-react/dist
           zip -r ../../prompt-enhancer-pro.zip .
-          
+
       - name: Upload Extension Artifact
         uses: actions/upload-artifact@v4
         with:
           name: prompt-enhancer-pro-extension
           path: prompt-enhancer-pro.zip
+          retention-days: 30
 
   test-backend:
     name: Test Django Backend
@@ -57,9 +60,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Django Checks
+      - name: Run Django System Checks
         env:
+          SECRET_KEY: "ci-test-secret-key-not-for-production"
+          DEBUG: "True"
           GEMINI_API_KEY: "test-key-placeholder"
+          ADMIN_EMAIL: "test@example.com"
+          BACKEND_URL: "http://localhost:8000"
         run: |
           python manage.py check
+          python manage.py migrate --run-syncdb
           python manage.py makemigrations --check --dry-run

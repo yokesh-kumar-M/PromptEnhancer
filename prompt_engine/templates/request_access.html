@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Request Access — PromptEnhancer Pro{% endblock %}
+
+{% block content %}
+<section style="max-width: 480px; margin: 60px auto; padding: 0 24px;">
+
+  <div style="text-align: center; margin-bottom: 32px;">
+    <div style="width: 52px; height: 52px; background: linear-gradient(135deg, #7c3aed, #4f46e5); border-radius: 14px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </div>
+    <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.02em;">Request Access</h1>
+    <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
+      PromptEnhancer Pro is invite-only. Submit your email and we'll review your request and send your invite code.
+    </p>
+  </div>
+
+  {% if submitted %}
+    <div class="alert-success" style="text-align: center; padding: 20px; margin-bottom: 24px;">
+      <div style="font-size: 24px; margin-bottom: 8px;">✓</div>
+      <p style="font-weight: 600; margin-bottom: 4px;">Request Submitted!</p>
+      <p>{{ message }}</p>
+    </div>
+    <div style="text-align: center;">
+      <a href="{% url 'landing' %}" class="btn-secondary">← Back to Home</a>
+    </div>
+  {% else %}
+    {% if error %}
+      <div class="alert-error" style="margin-bottom: 20px;">{{ error }}</div>
+    {% endif %}
+
+    <div class="card" style="padding: 28px;">
+      <form method="post" action="{% url 'request_access' %}">
+        {% csrf_token %}
+
+        <div style="margin-bottom: 16px;">
+          <label class="label" for="name">Your Name</label>
+          <input class="input" type="text" id="name" name="name" placeholder="Yokesh Kumar" autocomplete="name">
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label class="label" for="email">Email Address <span style="color: #ef4444;">*</span></label>
+          <input class="input" type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email">
+          <p style="font-size: 11px; color: #52525b; margin-top: 5px;">Your invite code will be sent to this address.</p>
+        </div>
+
+        <div style="margin-bottom: 24px;">
+          <label class="label" for="reason">How will you use it? <span style="color: #52525b;">(optional)</span></label>
+          <textarea class="input" id="reason" name="reason" placeholder="I work on AI research and want to improve my prompts for..." rows="3" style="resize: vertical; min-height: 70px;"></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 12px;">
+          Submit Request
+        </button>
+      </form>
+    </div>
+
+    <p style="text-align: center; margin-top: 16px; font-size: 13px; color: #52525b;">
+      Already have an invite code? <a href="{% url 'register' %}" style="color: #8b5cf6; text-decoration: none;">Register here →</a>
+    </p>
+    <p style="text-align: center; margin-top: 8px; font-size: 13px; color: #52525b;">
+      Already have an account? <a href="{% url 'login' %}" style="color: #8b5cf6; text-decoration: none;">Sign in →</a>
+    </p>
+  {% endif %}
+
+</section>
+{% endblock %}
