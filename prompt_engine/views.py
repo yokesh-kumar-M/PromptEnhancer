@@ -71,6 +71,32 @@ SYSTEM_PROMPTS = {
     ),
 }
 
+# ======================== TOKEN AUTH HELPER ========================
+
+
+def _get_user_from_token(request):
+    """Resolve user from 'Authorization: Token <key>' header."""
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+    if not auth_header.startswith('Token '):
+        return None
+    token_key = auth_header.split(' ', 1)[1].strip()
+    try:
+        from rest_framework.authtoken.models import Token
+        token = Token.objects.select_related('user').get(key=token_key)
+        if token.user.is_active:
+            return token.user
+    except Token.DoesNotExist:
+        pass
+    return None
+
+
+def _resolve_request_user(request):
+    """Returns authenticated user via session OR token, else None."""
+    if request.user.is_authenticated:
+        return request.user
+    return _get_user_from_token(request)
+
+
 # ======================== DECORATORS ========================
 
 
@@ -257,13 +283,14 @@ def log_usage(request):
 
 
 @csrf_exempt
-@login_required
+@require_http_methods(['POST', 'OPTIONS'])
 def admin_enhance_api(request):
     """Quick enhancement endpoint for admin dashboard. Staff only."""
-    if not request.user.is_staff:
-        return JsonResponse({'error': 'Unauthorized'}, status=403)
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _resolve_request_user(request)
+    if not user or not user.is_staff:
+        return JsonResponse({'error': 'Admin access required'}, status=403)
 
     try:
         data = json.loads(request.body)
@@ -283,7 +310,7 @@ def admin_enhance_api(request):
         result = _call_gemini(text, action, api_key)
 
         EnhancementLog.objects.create(
-            user=request.user,
+            user=user,
             action=action,
             provider='gemini',
             model_used='gemini-2.5-flash',
@@ -299,13 +326,14 @@ def admin_enhance_api(request):
 
 
 @csrf_exempt
-@login_required
+@require_http_methods(['POST', 'OPTIONS'])
 def admin_generate_invite(request):
     """Generate a new invite code. Staff only."""
-    if not request.user.is_staff:
-        return JsonResponse({'error': 'Unauthorized'}, status=403)
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Method not allowed'}, status=405)
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _resolve_request_user(request)
+    if not user or not user.is_staff:
+        return JsonResponse({'error': 'Admin access required'}, status=403)
 
     try:
         data = json.loads(request.body)
@@ -329,11 +357,15 @@ def admin_generate_invite(request):
     })
 
 
-@login_required
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
 def admin_invites_data(request):
     """Return invite codes as JSON for admin dashboard. Staff only."""
-    if not request.user.is_staff:
-        return JsonResponse({'error': 'Unauthorized'}, status=403)
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _resolve_request_user(request)
+    if not user or not user.is_staff:
+        return JsonResponse({'error': 'Admin access required'}, status=403)
 
     invites = InviteCode.objects.order_by('-created_at')[:50].values(
         'id', 'code', 'label', 'email', 'is_active', 'total_uses',
@@ -532,3 +564,208 @@ def dashboard_view(request):
         'api_key_configured': api_key_configured,
         'backend_url': getattr(settings, 'BACKEND_URL', 'http://localhost:8000'),
     })
+
+
+# ======================== JSON AUTH API (for React frontend) ========================
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def api_login(request):
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    try:
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request'}, status=400)
+
+    user_obj = User.objects.filter(email=email).first()
+    user = authenticate(request, username=user_obj.username if user_obj else '', password=password) if user_obj else None
+
+    if not user or not user.is_active:
+        return JsonResponse({'error': 'Invalid email or password'}, status=401)
+
+    from rest_framework.authtoken.models import Token
+    token, _ = Token.objects.get_or_create(user=user)
+
+    return JsonResponse({
+        'token': token.key,
+        'user': {
+            'id': user.id,
+            'name': user.first_name or user.username,
+            'email': user.email,
+            'is_staff': user.is_staff,
+        }
+    })
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def api_logout(request):
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _get_user_from_token(request)
+    if user:
+        from rest_framework.authtoken.models import Token
+        Token.objects.filter(user=user).delete()
+    return JsonResponse({'success': True})
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def api_register(request):
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    try:
+        data = json.loads(request.body)
+        invite_code_str = data.get('invite_code', '').strip()
+        name = data.get('name', '').strip()
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request'}, status=400)
+
+    invite = _resolve_invite(invite_code_str)
+    if not invite:
+        return JsonResponse({'error': 'Invalid or expired invite code'}, status=400)
+    if not all([name, email, password]):
+        return JsonResponse({'error': 'All fields are required'}, status=400)
+    if len(password) < 8:
+        return JsonResponse({'error': 'Password must be at least 8 characters'}, status=400)
+    if User.objects.filter(email=email).exists():
+        return JsonResponse({'error': 'An account with this email already exists'}, status=400)
+
+    username = f"{email.split('@')[0]}_{secrets.token_hex(3)}"
+    user = User.objects.create_user(username=username, email=email, password=password, first_name=name)
+    UserProfile.objects.create(user=user, invite_code=invite)
+
+    from rest_framework.authtoken.models import Token
+    token, _ = Token.objects.get_or_create(user=user)
+
+    return JsonResponse({
+        'token': token.key,
+        'user': {'id': user.id, 'name': user.first_name, 'email': user.email, 'is_staff': user.is_staff}
+    })
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def api_request_access(request):
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    try:
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        name = data.get('name', '').strip()
+        reason = data.get('reason', '').strip()
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request'}, status=400)
+
+    if not email:
+        return JsonResponse({'error': 'Email address is required'}, status=400)
+
+    if AccessRequest.objects.filter(email=email).exists():
+        return JsonResponse({
+            'already_submitted': True,
+            'message': "We already have your request! We'll email you once approved.",
+        })
+
+    AccessRequest.objects.create(email=email, name=name, reason=reason)
+
+    admin_email = getattr(settings, 'ADMIN_EMAIL', 'dezprox25@gmail.com')
+    try:
+        send_mail(
+            subject=f'[PromptEnhancer] New access request from {name or email}',
+            message=(
+                f'Name: {name or "(not provided)"}\n'
+                f'Email: {email}\n'
+                f'Reason: {reason or "(not provided)"}\n\n'
+                f'Approve at:\n'
+                f'{getattr(settings, "BACKEND_URL", "")}/admin/prompt_engine/accessrequest/'
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[admin_email],
+            fail_silently=True,
+        )
+    except Exception:
+        pass
+
+    return JsonResponse({
+        'success': True,
+        'message': f"Request submitted! We'll send your invite code to {email} once approved.",
+    })
+
+
+@require_http_methods(['GET'])
+def api_me(request):
+    user = _get_user_from_token(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+    return JsonResponse({
+        'user': {'id': user.id, 'name': user.first_name or user.username, 'email': user.email, 'is_staff': user.is_staff}
+    })
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def api_dashboard_stats(request):
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _get_user_from_token(request)
+    if not user or not user.is_staff:
+        return JsonResponse({'error': 'Admin access required'}, status=403)
+
+    logs = EnhancementLog.objects.all()
+    now = timezone.now()
+    today = now.date()
+    week_ago = today - timezone.timedelta(days=7)
+    month_ago = today - timezone.timedelta(days=30)
+
+    total = logs.count()
+    today_count = logs.filter(created_at__date=today).count()
+    week_count = logs.filter(created_at__date__gte=week_ago).count()
+    month_count = logs.filter(created_at__date__gte=month_ago).count()
+    avg_per_day = round(month_count / 30, 1) if month_count else 0
+
+    by_action: dict[str, int] = {}
+    by_provider: dict[str, int] = {}
+    by_domain: dict[str, int] = {}
+    for log in logs.values('action', 'provider', 'domain'):
+        by_action[log['action']] = by_action.get(log['action'], 0) + 1
+        by_provider[log['provider']] = by_provider.get(log['provider'], 0) + 1
+        if log['domain']:
+            by_domain[log['domain']] = by_domain.get(log['domain'], 0) + 1
+
+    by_action_data = sorted(
+        [{'name': k, 'count': v, 'pct': round(v / total * 100) if total else 0} for k, v in by_action.items()],
+        key=lambda x: -x['count'],
+    )
+    top_domains = sorted(
+        [{'domain': k, 'count': v} for k, v in by_domain.items()],
+        key=lambda x: -x['count'],
+    )[:8]
+
+    recent = list(
+        logs.order_by('-created_at')[:20].values(
+            'action', 'provider', 'model_used', 'domain',
+            'original_char_count', 'enhanced_char_count', 'created_at'
+        )
+    )
+
+    api_key_configured = bool(config('GEMINI_API_KEY', default='')) and \
+        config('GEMINI_API_KEY', default='') != 'your-gemini-api-key-here'
+
+    return JsonResponse({
+        'user': {'name': user.first_name or user.username, 'email': user.email},
+        'stats': {'total': total, 'today': today_count, 'week': week_count, 'month': month_count, 'avg_per_day': avg_per_day},
+        'by_action': by_action_data,
+        'by_provider': by_provider,
+        'top_domains': top_domains,
+        'recent': recent,
+        'invite_count': InviteCode.objects.filter(is_active=True).count(),
+        'invite_total': InviteCode.objects.count(),
+        'api_key_configured': api_key_configured,
+        'backend_url': getattr(settings, 'BACKEND_URL', 'http://localhost:8000'),
+    }, json_dumps_params={'default': str})

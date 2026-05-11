@@ -26,8 +26,10 @@ media/
 node_modules/
 extension-react/node_modules/
 vscode-extension/node_modules/
+frontend/node_modules/
 extension-react/dist/
 vscode-extension/out/
+frontend/dist/
 extension-react/.env.development
 extension-react/.env.production
 *.vsix
