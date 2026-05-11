@@ -1,9 +1,56 @@
+# Python
 venv/
+.venv/
+env/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# Django
 db.sqlite3
+*.sqlite3
 .env
+.env.*
+!.env.example
+staticfiles/
+media/
+
+# Node / Extensions
+node_modules/
+extension-react/node_modules/
+vscode-extension/node_modules/
+extension-react/dist/
+vscode-extension/out/
+extension-react/.env.development
+extension-react/.env.production
+*.vsix
+pnpm-lock.yaml
+
+# IDE
 .idea/
 .vscode/
-extension-react/node_modules/
-staticfiles/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+prompt-enhancer-chrome.zip
+prompt-enhancer-vscode.vsix
+prompt-enhancer-cli.zip
+*.zip
+
+# Vercel
+.vercel/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*

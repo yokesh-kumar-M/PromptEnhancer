@@ -1,0 +1,126 @@
+{
+  "name": "prompt-enhancer-pro",
+  "displayName": "PromptEnhancer Pro",
+  "description": "Enhance your AI prompts directly in VS Code using Gemini AI",
+  "version": "1.0.0",
+  "publisher": "promptenhancer",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other", "AI"],
+  "icon": "icon.png",
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "promptenhancer.enhance",
+        "title": "✨ Enhance Prompt",
+        "category": "PromptEnhancer"
+      },
+      {
+        "command": "promptenhancer.professional",
+        "title": "✨ Make Professional",
+        "category": "PromptEnhancer"
+      },
+      {
+        "command": "promptenhancer.code",
+        "title": "✨ Enhance for Code",
+        "category": "PromptEnhancer"
+      },
+      {
+        "command": "promptenhancer.shorten",
+        "title": "✨ Shorten & Refine",
+        "category": "PromptEnhancer"
+      },
+      {
+        "command": "promptenhancer.creative",
+        "title": "✨ Creative Boost",
+        "category": "PromptEnhancer"
+      },
+      {
+        "command": "promptenhancer.setApiKey",
+        "title": "Set Gemini API Key",
+        "category": "PromptEnhancer"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "promptenhancer.enhance",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "editorHasSelection || editorTextFocus"
+      },
+      {
+        "command": "promptenhancer.code",
+        "key": "ctrl+shift+k",
+        "mac": "cmd+shift+k",
+        "when": "editorHasSelection || editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorHasSelection",
+          "submenu": "promptenhancer.submenu",
+          "group": "1_modification@99"
+        }
+      ],
+      "promptenhancer.submenu": [
+        { "command": "promptenhancer.enhance" },
+        { "command": "promptenhancer.professional" },
+        { "command": "promptenhancer.code" },
+        { "command": "promptenhancer.shorten" },
+        { "command": "promptenhancer.creative" }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "promptenhancer.submenu",
+        "label": "✨ PromptEnhancer"
+      }
+    ],
+    "configuration": {
+      "title": "PromptEnhancer Pro",
+      "properties": {
+        "promptenhancer.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your Gemini API key from https://aistudio.google.com/apikey"
+        },
+        "promptenhancer.model": {
+          "type": "string",
+          "default": "gemini-2.5-flash",
+          "enum": ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+          "description": "Gemini model to use for enhancement"
+        },
+        "promptenhancer.insertMode": {
+          "type": "string",
+          "default": "replace",
+          "enum": ["replace", "append", "clipboard"],
+          "enumDescriptions": [
+            "Replace the selected text with the enhanced version",
+            "Append the enhanced version below the selection",
+            "Copy the enhanced version to clipboard"
+          ],
+          "description": "How to insert the enhanced text"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^3.0.0"
+  }
+}

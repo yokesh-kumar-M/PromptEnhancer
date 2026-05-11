@@ -7,6 +7,11 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('prompt_engine.urls')),
 
+    # Admin API (dashboard tools)
+    path('api/admin/enhance/', web_views.admin_enhance_api, name='admin_enhance'),
+    path('api/admin/invite/generate/', web_views.admin_generate_invite, name='admin_generate_invite'),
+    path('api/admin/invites/', web_views.admin_invites_data, name='admin_invites'),
+
     # Web views
     path('', web_views.landing_view, name='landing'),
     path('request-access/', web_views.request_access_view, name='request_access'),

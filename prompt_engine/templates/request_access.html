@@ -1,27 +1,88 @@
 {% extends "base.html" %}
 {% block title %}Request Access — PromptEnhancer Pro{% endblock %}
 
-{% block content %}
-<section style="max-width: 480px; margin: 60px auto; padding: 0 24px;">
+{% block extra_head %}
+<style>
+  .request-wrap {
+    max-width: 480px;
+    margin: 60px auto;
+    padding: 0 24px;
+    animation: fadeUp 0.4s ease both;
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .page-hero {
+    text-align: center;
+    margin-bottom: 36px;
+  }
+  .hero-icon {
+    width: 56px;
+    height: 56px;
+    background: linear-gradient(135deg, #7c3aed, #4f46e5);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 18px;
+    box-shadow: 0 0 40px rgba(124,58,237,0.4);
+  }
+  .page-title {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 10px;
+  }
+  .page-sub { font-size: 14px; color: var(--text-2); line-height: 1.65; max-width: 360px; margin: 0 auto; }
+  .success-card {
+    background: rgba(5,150,105,0.08);
+    border: 1px solid rgba(5,150,105,0.2);
+    border-radius: 14px;
+    padding: 28px;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .success-icon {
+    width: 52px;
+    height: 52px;
+    background: rgba(5,150,105,0.15);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+  }
+  .success-title { font-size: 18px; font-weight: 700; margin-bottom: 8px; color: var(--emerald-light); }
+  .success-msg { font-size: 14px; color: var(--text-2); line-height: 1.6; }
+</style>
+{% endblock %}
 
-  <div style="text-align: center; margin-bottom: 32px;">
-    <div style="width: 52px; height: 52px; background: linear-gradient(135deg, #7c3aed, #4f46e5); border-radius: 14px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+{% block content %}
+<section class="request-wrap">
+
+  <div class="page-hero">
+    <div class="hero-icon">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.5">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
     </div>
-    <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.02em;">Request Access</h1>
-    <p style="color: #71717a; font-size: 14px; line-height: 1.6;">
-      PromptEnhancer Pro is invite-only. Submit your email and we'll review your request and send your invite code.
+    <h1 class="page-title">Request Access</h1>
+    <p class="page-sub">
+      PromptEnhancer Pro is invite-only. Submit your request and we'll review it and send your personal invite code.
     </p>
   </div>
 
   {% if submitted %}
-    <div class="alert-success" style="text-align: center; padding: 20px; margin-bottom: 24px;">
-      <div style="font-size: 24px; margin-bottom: 8px;">✓</div>
-      <p style="font-weight: 600; margin-bottom: 4px;">Request Submitted!</p>
-      <p>{{ message }}</p>
+    <div class="success-card">
+      <div class="success-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--emerald-light)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <div class="success-title">Request Submitted!</div>
+      <p class="success-msg">{{ message }}</p>
     </div>
     <div style="text-align: center;">
-      <a href="{% url 'landing' %}" class="btn-secondary">← Back to Home</a>
+      <a href="{% url 'landing' %}" class="btn btn-secondary">← Back to Home</a>
     </div>
   {% else %}
     {% if error %}
@@ -33,33 +94,39 @@
         {% csrf_token %}
 
         <div style="margin-bottom: 16px;">
-          <label class="label" for="name">Your Name</label>
-          <input class="input" type="text" id="name" name="name" placeholder="Yokesh Kumar" autocomplete="name">
+          <label class="form-label" for="name">Your Name</label>
+          <input class="form-input" type="text" id="name" name="name"
+                 placeholder="Your full name" autocomplete="name">
         </div>
 
         <div style="margin-bottom: 16px;">
-          <label class="label" for="email">Email Address <span style="color: #ef4444;">*</span></label>
-          <input class="input" type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email">
-          <p style="font-size: 11px; color: #52525b; margin-top: 5px;">Your invite code will be sent to this address.</p>
+          <label class="form-label" for="email">Email Address <span style="color: #fb7185;">*</span></label>
+          <input class="form-input" type="email" id="email" name="email"
+                 placeholder="you@example.com" required autocomplete="email">
+          <p style="font-size: 11px; color: var(--text-3); margin-top: 5px;">Your invite code will be sent to this address.</p>
         </div>
 
         <div style="margin-bottom: 24px;">
-          <label class="label" for="reason">How will you use it? <span style="color: #52525b;">(optional)</span></label>
-          <textarea class="input" id="reason" name="reason" placeholder="I work on AI research and want to improve my prompts for..." rows="3" style="resize: vertical; min-height: 70px;"></textarea>
+          <label class="form-label" for="reason">How will you use it? <span style="color: var(--text-3);">(optional)</span></label>
+          <textarea class="form-input" id="reason" name="reason"
+                    placeholder="I work on AI research and want to improve my prompts for..."
+                    rows="3" style="resize: vertical; min-height: 76px;"></textarea>
         </div>
 
-        <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 12px;">
-          Submit Request
+        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center; padding: 13px; font-size: 15px; font-weight: 700; box-shadow: 0 4px 20px rgba(124,58,237,0.35);">
+          Submit Request →
         </button>
       </form>
     </div>
 
-    <p style="text-align: center; margin-top: 16px; font-size: 13px; color: #52525b;">
-      Already have an invite code? <a href="{% url 'register' %}" style="color: #8b5cf6; text-decoration: none;">Register here →</a>
-    </p>
-    <p style="text-align: center; margin-top: 8px; font-size: 13px; color: #52525b;">
-      Already have an account? <a href="{% url 'login' %}" style="color: #8b5cf6; text-decoration: none;">Sign in →</a>
-    </p>
+    <div style="text-align: center; margin-top: 18px;">
+      <p style="font-size: 13px; color: var(--text-3); margin-bottom: 5px;">
+        Already have an invite code? <a href="{% url 'register' %}" style="color: var(--violet-light); text-decoration: none; font-weight: 500;">Register here →</a>
+      </p>
+      <p style="font-size: 13px; color: var(--text-3);">
+        Already have an account? <a href="{% url 'login' %}" style="color: var(--violet-light); text-decoration: none; font-weight: 500;">Sign in →</a>
+      </p>
+    </div>
   {% endif %}
 
 </section>

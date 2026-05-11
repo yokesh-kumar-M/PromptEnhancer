@@ -2,58 +2,23 @@ name: Deploy PromptEnhancer Pro
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build-extension:
-    name: Build Chrome Extension
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: extension-react/package-lock.json
-
-      - name: Install Dependencies
-        working-directory: extension-react
-        run: npm ci
-
-      - name: Build Extension
-        working-directory: extension-react
-        run: npm run build
-        env:
-          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL }}
-
-      - name: Zip Extension
-        run: |
-          cd extension-react/dist
-          zip -r ../../prompt-enhancer-pro.zip .
-
-      - name: Upload Extension Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: prompt-enhancer-pro-extension
-          path: prompt-enhancer-pro.zip
-          retention-days: 30
-
   test-backend:
     name: Test Django Backend
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
 
       - name: Install Dependencies
         run: |
@@ -71,3 +36,131 @@ jobs:
           python manage.py check
           python manage.py migrate --run-syncdb
           python manage.py makemigrations --check --dry-run
+
+  build-chrome-extension:
+    name: Build Chrome Extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: extension-react/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: extension-react
+        run: npm ci
+
+      - name: Build Extension
+        working-directory: extension-react
+        run: npm run build
+        env:
+          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL || 'https://promptenhancer.onrender.com' }}
+
+      - name: Package Extension
+        run: |
+          cd extension-react/dist
+          zip -r ../../prompt-enhancer-chrome.zip .
+          echo "Chrome extension packaged: $(du -sh ../../prompt-enhancer-chrome.zip | cut -f1)"
+
+      - name: Upload Chrome Extension Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension
+          path: prompt-enhancer-chrome.zip
+          retention-days: 90
+
+  build-vscode-extension:
+    name: Build VS Code Extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        working-directory: vscode-extension
+        run: npm ci --prefer-offline || npm install
+
+      - name: Compile TypeScript
+        working-directory: vscode-extension
+        run: npm run compile
+
+      - name: Package VS Code Extension
+        working-directory: vscode-extension
+        run: npx @vscode/vsce package --no-dependencies -o ../prompt-enhancer-vscode.vsix
+
+      - name: Upload VS Code Extension Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension
+          path: prompt-enhancer-vscode.vsix
+          retention-days: 90
+
+  create-release:
+    name: Create GitHub Release
+    needs: [test-backend, build-chrome-extension, build-vscode-extension]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate Version Tag
+        id: version
+        run: |
+          TAG="v$(date +'%Y.%m.%d')-build${{ github.run_number }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Generated tag: $TAG"
+
+      - name: Download Chrome Extension
+        uses: actions/download-artifact@v4
+        with:
+          name: chrome-extension
+          path: release-assets/
+
+      - name: Download VS Code Extension
+        uses: actions/download-artifact@v4
+        with:
+          name: vscode-extension
+          path: release-assets/
+
+      - name: Package CLI Tool
+        run: |
+          zip -j release-assets/prompt-enhancer-cli.zip cli/enhance.py cli/shell_integration.sh cli/shell_integration.ps1
+          echo "CLI packaged"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "PromptEnhancer Pro ${{ steps.version.outputs.tag }}"
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release-assets/prompt-enhancer-chrome.zip
+            release-assets/prompt-enhancer-vscode.vsix
+            release-assets/prompt-enhancer-cli.zip
+          body: |
+            ## PromptEnhancer Pro ${{ steps.version.outputs.tag }}
+
+            ### Downloads
+
+            | Platform | File | Instructions |
+            |----------|------|--------------|
+            | Chrome Extension | `prompt-enhancer-chrome.zip` | Unzip → Chrome → `chrome://extensions` → Enable Developer Mode → Load Unpacked |
+            | VS Code Extension | `prompt-enhancer-vscode.vsix` | VS Code → Extensions → `...` → Install from VSIX |
+            | CLI Tool | `prompt-enhancer-cli.zip` | Unzip → `pip install google-generativeai` → `export GEMINI_API_KEY=...` |
+
+            ### What's New
+            Auto-generated from commit `${{ github.sha }}` on branch `${{ github.ref_name }}`.
+
+            ### Setup
+            1. Get a free [Gemini API key](https://aistudio.google.com/apikey) or [Groq API key](https://console.groq.com/keys)
+            2. Install your preferred platform extension above
+            3. Enter your API key in the extension settings
