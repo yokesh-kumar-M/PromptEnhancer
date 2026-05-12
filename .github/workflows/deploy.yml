@@ -69,10 +69,17 @@ jobs:
         run: npm run build
 
       - name: Deploy to Vercel (production)
-        run: npx vercel --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
         env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: prj_QqNnXPmw1OQHTqqzmxjM6cplDkSj
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "⚠️  VERCEL_TOKEN secret not set — skipping CI deploy."
+            echo "   Deploy manually: vercel deploy --prod from the frontend/ directory."
+            exit 0
+          fi
+          npx vercel --prod --yes --token "$VERCEL_TOKEN"
 
   # ─────────────────────────────────────────────────────────────
   # 3. Chrome extension — build & package
