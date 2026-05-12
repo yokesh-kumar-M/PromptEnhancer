@@ -5,7 +5,8 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
-from django.db.models import Q
+from django.db import connection
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -504,47 +505,44 @@ def register_view(request):
 def dashboard_view(request):
     profile, _ = UserProfile.objects.get_or_create(user=request.user)
 
-    logs = EnhancementLog.objects.all()
-
     now = timezone.now()
     today = now.date()
     week_ago = today - timezone.timedelta(days=7)
     month_ago = today - timezone.timedelta(days=30)
 
-    total = logs.count()
-    today_count = logs.filter(created_at__date=today).count()
-    week_count = logs.filter(created_at__date__gte=week_ago).count()
-    month_count = logs.filter(created_at__date__gte=month_ago).count()
-
+    total = EnhancementLog.objects.count()
+    today_count = EnhancementLog.objects.filter(created_at__date=today).count()
+    week_count = EnhancementLog.objects.filter(created_at__date__gte=week_ago).count()
+    month_count = EnhancementLog.objects.filter(created_at__date__gte=month_ago).count()
     avg_per_day = round(month_count / 30, 1) if month_count else 0
 
-    by_action: dict[str, int] = {}
-    by_provider: dict[str, int] = {}
-    by_domain: dict[str, int] = {}
-    for log in logs.values('action', 'provider', 'domain'):
-        by_action[log['action']] = by_action.get(log['action'], 0) + 1
-        by_provider[log['provider']] = by_provider.get(log['provider'], 0) + 1
-        if log['domain']:
-            by_domain[log['domain']] = by_domain.get(log['domain'], 0) + 1
+    by_action_qs = (
+        EnhancementLog.objects.values('action')
+        .annotate(count=Count('id'))
+        .order_by('-count')
+    )
+    by_action_data = [
+        {'name': r['action'], 'count': r['count'], 'pct': round(r['count'] / total * 100) if total else 0}
+        for r in by_action_qs
+    ]
 
-    by_action_data = sorted(
-        [{'name': k, 'count': v, 'pct': round(v / total * 100) if total else 0}
-         for k, v in by_action.items()],
-        key=lambda x: -x['count'],
+    by_provider_qs = EnhancementLog.objects.values('provider').annotate(count=Count('id'))
+    by_provider = {r['provider']: r['count'] for r in by_provider_qs}
+
+    top_domains = list(
+        EnhancementLog.objects.exclude(domain='')
+        .values('domain')
+        .annotate(count=Count('id'))
+        .order_by('-count')[:8]
     )
 
-    top_domains = sorted(
-        [{'domain': k, 'count': v} for k, v in by_domain.items()],
-        key=lambda x: -x['count'],
-    )[:8]
-
-    recent = logs.select_related('invite_code', 'user')[:20]
+    recent = EnhancementLog.objects.select_related('invite_code', 'user').order_by('-created_at')[:20]
 
     invite_count = InviteCode.objects.filter(is_active=True).count()
     invite_total = InviteCode.objects.count()
 
-    api_key_configured = bool(config('GEMINI_API_KEY', default='')) and \
-        config('GEMINI_API_KEY', default='') != 'your-gemini-api-key-here'
+    gemini_key = config('GEMINI_API_KEY', default='')
+    api_key_configured = bool(gemini_key) and gemini_key != 'your-gemini-api-key-here'
 
     return render(request, 'dashboard.html', {
         'profile': profile,
@@ -586,8 +584,8 @@ def api_login(request):
 
     if not user or not user.is_active:
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
-        
-    if not user.is_superuser:
+
+    if not user.is_staff:
         return JsonResponse({'error': 'This web login is for administrators only. Use the Chrome extension with your invite code.'}, status=403)
 
     from rest_framework.authtoken.models import Token
@@ -720,45 +718,46 @@ def api_dashboard_stats(request):
     if not user or not user.is_staff:
         return JsonResponse({'error': 'Admin access required'}, status=403)
 
-    logs = EnhancementLog.objects.all()
     now = timezone.now()
     today = now.date()
     week_ago = today - timezone.timedelta(days=7)
     month_ago = today - timezone.timedelta(days=30)
 
-    total = logs.count()
-    today_count = logs.filter(created_at__date=today).count()
-    week_count = logs.filter(created_at__date__gte=week_ago).count()
-    month_count = logs.filter(created_at__date__gte=month_ago).count()
+    total = EnhancementLog.objects.count()
+    today_count = EnhancementLog.objects.filter(created_at__date=today).count()
+    week_count = EnhancementLog.objects.filter(created_at__date__gte=week_ago).count()
+    month_count = EnhancementLog.objects.filter(created_at__date__gte=month_ago).count()
     avg_per_day = round(month_count / 30, 1) if month_count else 0
 
-    by_action: dict[str, int] = {}
-    by_provider: dict[str, int] = {}
-    by_domain: dict[str, int] = {}
-    for log in logs.values('action', 'provider', 'domain'):
-        by_action[log['action']] = by_action.get(log['action'], 0) + 1
-        by_provider[log['provider']] = by_provider.get(log['provider'], 0) + 1
-        if log['domain']:
-            by_domain[log['domain']] = by_domain.get(log['domain'], 0) + 1
-
-    by_action_data = sorted(
-        [{'name': k, 'count': v, 'pct': round(v / total * 100) if total else 0} for k, v in by_action.items()],
-        key=lambda x: -x['count'],
+    by_action_qs = (
+        EnhancementLog.objects.values('action')
+        .annotate(count=Count('id'))
+        .order_by('-count')
     )
-    top_domains = sorted(
-        [{'domain': k, 'count': v} for k, v in by_domain.items()],
-        key=lambda x: -x['count'],
-    )[:8]
+    by_action_data = [
+        {'name': r['action'], 'count': r['count'], 'pct': round(r['count'] / total * 100) if total else 0}
+        for r in by_action_qs
+    ]
+
+    by_provider_qs = EnhancementLog.objects.values('provider').annotate(count=Count('id'))
+    by_provider = {r['provider']: r['count'] for r in by_provider_qs}
+
+    top_domains = list(
+        EnhancementLog.objects.exclude(domain='')
+        .values('domain')
+        .annotate(count=Count('id'))
+        .order_by('-count')[:8]
+    )
 
     recent = list(
-        logs.order_by('-created_at')[:20].values(
+        EnhancementLog.objects.order_by('-created_at')[:20].values(
             'action', 'provider', 'model_used', 'domain',
-            'original_char_count', 'enhanced_char_count', 'created_at'
+            'original_char_count', 'enhanced_char_count', 'created_at',
         )
     )
 
-    api_key_configured = bool(config('GEMINI_API_KEY', default='')) and \
-        config('GEMINI_API_KEY', default='') != 'your-gemini-api-key-here'
+    gemini_key = config('GEMINI_API_KEY', default='')
+    api_key_configured = bool(gemini_key) and gemini_key != 'your-gemini-api-key-here'
 
     return JsonResponse({
         'user': {'name': user.first_name or user.username, 'email': user.email},
@@ -772,3 +771,16 @@ def api_dashboard_stats(request):
         'api_key_configured': api_key_configured,
         'backend_url': getattr(settings, 'BACKEND_URL', 'http://localhost:8000'),
     }, json_dumps_params={'default': str})
+
+
+# ======================== HEALTH CHECK ========================
+
+
+@require_http_methods(['GET'])
+def health_check(request):
+    """Lightweight liveness probe — used by Render and keep-alive pings."""
+    try:
+        connection.ensure_connection()
+        return JsonResponse({'status': 'ok', 'db': 'ok'})
+    except Exception as exc:
+        return JsonResponse({'status': 'error', 'db': str(exc)}, status=503)

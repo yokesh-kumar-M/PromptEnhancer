@@ -93,6 +93,11 @@ class EnhancementLog(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['action']),
+            models.Index(fields=['provider']),
+        ]
 
     def __str__(self):
         return f"{self.action} by {self.user or 'anon'} at {self.created_at:%Y-%m-%d %H:%M}"

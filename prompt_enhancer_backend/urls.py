@@ -19,6 +19,7 @@ urlpatterns = [
     path('api/auth/request-access/', web_views.api_request_access, name='api_request_access'),
     path('api/auth/me/', web_views.api_me, name='api_me'),
     path('api/dashboard/stats/', web_views.api_dashboard_stats, name='api_dashboard_stats'),
+    path('api/health/', web_views.health_check, name='health_check'),
 
     # Django template web views (kept for /admin/ login flow)
     path('', web_views.landing_view, name='landing'),

@@ -13,7 +13,7 @@ services:
     region: oregon
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
     startCommand: "python manage.py migrate && python manage.py create_admin && gunicorn prompt_enhancer_backend.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --threads 2 --timeout 120"
-    healthCheckPath: /
+    healthCheckPath: /api/health/
     autoDeploy: true
     envVars:
       - key: DEBUG
