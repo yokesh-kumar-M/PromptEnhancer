@@ -24,6 +24,12 @@ class InviteCodeAdmin(admin.ModelAdmin):
     search_fields = ['code', 'label', 'email']
     actions = ['activate_codes', 'deactivate_codes', 'send_invite_emails']
 
+    def save_model(self, request, obj, form, change):
+        import secrets as _secrets
+        if not obj.code:
+            obj.code = _secrets.token_urlsafe(16)
+        super().save_model(request, obj, form, change)
+
     def activate_codes(self, request, queryset):
         queryset.update(is_active=True)
     activate_codes.short_description = 'Activate selected codes'
