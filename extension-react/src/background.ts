@@ -289,6 +289,25 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'verifyApiKey') {
+    chrome.storage.local.get(['settings'], async (result) => {
+      const settings = (result.settings as Record<string, unknown>) || {};
+      const backendUrl = (settings.backendUrl as string) || DEFAULT_BACKEND_URL;
+      try {
+        const resp = await fetch(`${backendUrl}/api/verify-key/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: request.apiKey, provider: request.provider }),
+        });
+        const data = await resp.json();
+        sendResponse(data);
+      } catch (err: any) {
+        sendResponse({ valid: false, error: `Cannot reach server: ${err.message}` });
+      }
+    });
+    return true;
+  }
+
   return false;
 });
 

@@ -50,34 +50,97 @@ Rules:
 - Make it memorable and share-worthy`,
 };
 
+// ======================== GROQ (OpenAI-compatible) ========================
+
+async function callGroqEnhance(apiKey: string, text: string, action: string, model: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const https = require('https') as typeof import('https');
+  const m = model || 'llama-3.3-70b-versatile';
+  const body = JSON.stringify({
+    model: m,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPTS[action] || SYSTEM_PROMPTS['Enhance'] },
+      { role: 'user', content: text },
+    ],
+    temperature: action === 'Creative' ? 0.9 : 0.7,
+    max_tokens: 4096,
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'api.groq.com',
+      path: '/openai/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk: string) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (res.statusCode !== 200) {
+            const msg: string = parsed.error?.message || `Groq API error ${res.statusCode}`;
+            if (res.statusCode === 401) { reject(new Error('Invalid Groq API key. Run "PromptEnhancer: Set API Key".')); return; }
+            if (res.statusCode === 429) { reject(new Error('Groq rate limit reached. Try again in a moment.')); return; }
+            reject(new Error(msg));
+          } else {
+            resolve(parsed.choices[0].message.content as string);
+          }
+        } catch (e) {
+          reject(new Error('Failed to parse Groq response'));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 // ======================== HELPERS ========================
 
 function getConfig(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration('promptenhancer');
 }
 
-async function getApiKey(context: vscode.ExtensionContext): Promise<string | undefined> {
-  const fromConfig = getConfig().get<string>('geminiApiKey');
-  if (fromConfig?.trim()) return fromConfig.trim();
+async function getApiKeyAndProvider(context: vscode.ExtensionContext): Promise<{ apiKey: string; provider: string } | undefined> {
+  const cfg = getConfig();
+  const provider = cfg.get<string>('provider') || 'gemini';
 
-  const fromSecrets = await context.secrets.get('promptenhancer.geminiApiKey');
-  if (fromSecrets?.trim()) return fromSecrets.trim();
+  if (provider === 'groq') {
+    const fromConfig = cfg.get<string>('groqApiKey');
+    if (fromConfig?.trim()) return { apiKey: fromConfig.trim(), provider: 'groq' };
+    const fromSecrets = await context.secrets.get('promptenhancer.groqApiKey');
+    if (fromSecrets?.trim()) return { apiKey: fromSecrets.trim(), provider: 'groq' };
+  } else {
+    const fromConfig = cfg.get<string>('geminiApiKey');
+    if (fromConfig?.trim()) return { apiKey: fromConfig.trim(), provider: 'gemini' };
+    const fromSecrets = await context.secrets.get('promptenhancer.geminiApiKey');
+    if (fromSecrets?.trim()) return { apiKey: fromSecrets.trim(), provider: 'gemini' };
+  }
 
   return undefined;
 }
 
-function getModel(apiKey: string): GenerativeModel {
-  const modelName = getConfig().get<string>('model') || 'gemini-2.5-flash';
+function getGeminiModel(apiKey: string): GenerativeModel {
+  const modelName = getConfig().get<string>('geminiModel') || 'gemini-2.5-flash';
   const client = new GoogleGenerativeAI(apiKey);
   return client.getGenerativeModel({ model: modelName });
 }
 
-async function enhance(
-  text: string,
-  action: string,
-  apiKey: string,
-): Promise<string> {
-  const model = getModel(apiKey);
+async function enhance(text: string, action: string, apiKey: string, provider: string): Promise<string> {
+  if (provider === 'groq') {
+    const model = getConfig().get<string>('groqModel') || 'llama-3.3-70b-versatile';
+    return callGroqEnhance(apiKey, text, action, model);
+  }
+  const model = getGeminiModel(apiKey);
   const systemPrompt = SYSTEM_PROMPTS[action] || SYSTEM_PROMPTS['Enhance'];
   const result = await model.generateContent([systemPrompt, text]);
   return result.response.text();
@@ -137,17 +200,22 @@ function makeEnhanceCommand(
       return;
     }
 
-    const apiKey = await getApiKey(context);
-    if (!apiKey) {
+    const keyAndProvider = await getApiKeyAndProvider(context);
+    if (!keyAndProvider) {
+      const cfg = getConfig();
+      const provider = cfg.get<string>('provider') || 'gemini';
+      const getKeyUrl = provider === 'groq'
+        ? 'https://console.groq.com/keys'
+        : 'https://aistudio.google.com/apikey';
       const choice = await vscode.window.showErrorMessage(
-        'PromptEnhancer: No Gemini API key configured.',
+        `PromptEnhancer: No ${provider === 'groq' ? 'Groq' : 'Gemini'} API key configured.`,
         'Set API Key',
         'Get Free Key',
       );
       if (choice === 'Set API Key') {
         vscode.commands.executeCommand('promptenhancer.setApiKey');
       } else if (choice === 'Get Free Key') {
-        vscode.env.openExternal(vscode.Uri.parse('https://aistudio.google.com/apikey'));
+        vscode.env.openExternal(vscode.Uri.parse(getKeyUrl));
       }
       return;
     }
@@ -159,16 +227,17 @@ function makeEnhanceCommand(
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `✨ PromptEnhancer: ${action}ing...`,
+        title: `✨ PromptEnhancer (${keyAndProvider.provider}): ${action}ing...`,
         cancellable: false,
       },
       async () => {
         try {
-          const result = await enhance(text, action, apiKey);
+          const result = await enhance(text, action, keyAndProvider.apiKey, keyAndProvider.provider);
           await insertResult(editor, result, originalSelection);
           vscode.window.setStatusBarMessage(`✨ PromptEnhancer: ${action} complete!`, 3000);
-        } catch (err: any) {
-          vscode.window.showErrorMessage(`PromptEnhancer: ${err.message || 'Enhancement failed'}`);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Enhancement failed';
+          vscode.window.showErrorMessage(`PromptEnhancer: ${msg}`);
         }
       },
     );
@@ -178,7 +247,6 @@ function makeEnhanceCommand(
 // ======================== ACTIVATION ========================
 
 export function activate(context: vscode.ExtensionContext): void {
-  // Status bar item
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBar.text = '$(sparkle) PE';
   statusBar.tooltip = 'PromptEnhancer Pro — Click to enhance selection';
@@ -186,7 +254,6 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBar.show();
   context.subscriptions.push(statusBar);
 
-  // Commands
   const commands: [string, string][] = [
     ['promptenhancer.enhance', 'Enhance'],
     ['promptenhancer.professional', 'Professional'],
@@ -201,19 +268,41 @@ export function activate(context: vscode.ExtensionContext): void {
     );
   }
 
-  // Set API Key command
+  // Set API Key command — handles both Groq and Gemini based on current provider setting
   context.subscriptions.push(
     vscode.commands.registerCommand('promptenhancer.setApiKey', async () => {
+      const providerChoice = await vscode.window.showQuickPick(
+        [
+          { label: '⚡ Groq', description: 'llama-3.3-70b-versatile · 14,400 req/day free', value: 'groq' },
+          { label: '✦ Gemini', description: 'gemini-2.5-flash · free tier available', value: 'gemini' },
+        ],
+        { placeHolder: 'Select AI provider' },
+      );
+      if (!providerChoice) return;
+
+      const providerLabel = providerChoice.value === 'groq' ? 'Groq' : 'Gemini';
+      const placeholder = providerChoice.value === 'groq' ? 'gsk_…' : 'AIzaSy…';
+
       const key = await vscode.window.showInputBox({
-        prompt: 'Enter your Gemini API key',
-        placeHolder: 'AIzaSy...',
+        prompt: `Enter your ${providerLabel} API key`,
+        placeHolder: placeholder,
         password: true,
         validateInput: (v) => (v.trim().length > 10 ? null : 'API key looks too short'),
       });
       if (!key) return;
 
-      await context.secrets.store('promptenhancer.geminiApiKey', key.trim());
-      vscode.window.showInformationMessage('✅ PromptEnhancer: API key saved securely!');
+      const secretKey = `promptenhancer.${providerChoice.value}ApiKey`;
+      await context.secrets.store(secretKey, key.trim());
+
+      await vscode.workspace.getConfiguration('promptenhancer').update(
+        'provider',
+        providerChoice.value,
+        vscode.ConfigurationTarget.Global,
+      );
+
+      vscode.window.showInformationMessage(
+        `✅ PromptEnhancer: ${providerLabel} API key saved! Provider set to ${providerChoice.value}.`,
+      );
     }),
   );
 

@@ -48,7 +48,7 @@
       },
       {
         "command": "promptenhancer.setApiKey",
-        "title": "Set Gemini API Key",
+        "title": "Set API Key (Groq or Gemini)",
         "category": "PromptEnhancer"
       }
     ],
@@ -101,29 +101,47 @@
     "configuration": {
       "title": "PromptEnhancer Pro",
       "properties": {
+        "promptenhancer.provider": {
+          "type": "string",
+          "default": "gemini",
+          "enum": ["gemini", "groq"],
+          "enumDescriptions": [
+            "Google Gemini (free tier — https://aistudio.google.com/apikey)",
+            "Groq (14,400 req/day free — https://console.groq.com/keys)"
+          ],
+          "description": "AI provider to use for enhancement"
+        },
         "promptenhancer.geminiApiKey": {
           "type": "string",
           "default": "",
           "description": "Your Gemini API key from https://aistudio.google.com/apikey"
         },
-        "promptenhancer.model": {
+        "promptenhancer.geminiModel": {
           "type": "string",
           "default": "gemini-2.5-flash",
-          "enum": [
-            "gemini-2.5-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro"
+          "enum": ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"],
+          "description": "Gemini model to use"
+        },
+        "promptenhancer.groqApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Your Groq API key from https://console.groq.com/keys"
+        },
+        "promptenhancer.groqModel": {
+          "type": "string",
+          "default": "llama-3.3-70b-versatile",
+          "enum": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+          "enumDescriptions": [
+            "Llama 3.3 70B — best quality",
+            "Llama 3.1 8B — fastest",
+            "Mixtral 8x7B"
           ],
-          "description": "Gemini model to use for enhancement"
+          "description": "Groq model to use"
         },
         "promptenhancer.insertMode": {
           "type": "string",
           "default": "replace",
-          "enum": [
-            "replace",
-            "append",
-            "clipboard"
-          ],
+          "enum": ["replace", "append", "clipboard"],
           "enumDescriptions": [
             "Replace the selected text with the enhanced version",
             "Append the enhanced version below the selection",

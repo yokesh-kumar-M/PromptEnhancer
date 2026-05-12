@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 PromptEnhancer Pro — CLI Tool
-Enhance prompts from the command line. Works with Claude Code, Gemini CLI, and any terminal.
+Enhance prompts from the command line using your own API key (BYOK).
 
 Usage:
   python enhance.py "write a function to sort a list"
@@ -9,19 +9,28 @@ Usage:
   python enhance.py "my prompt" --action Code
   python enhance.py "my prompt" --action Professional --clipboard
 
-Setup:
-  Set your Gemini API key:
+Setup (choose one):
+  Groq (14,400 req/day free):
+    Windows:  $env:GROQ_API_KEY = "gsk_..."
+    Mac/Linux: export GROQ_API_KEY="gsk_..."
+    Get key: https://console.groq.com/keys
+
+  Gemini (free tier):
     Windows:  $env:GEMINI_API_KEY = "AIzaSy..."
     Mac/Linux: export GEMINI_API_KEY="AIzaSy..."
-    Or create a .env file in this directory with: GEMINI_API_KEY=AIzaSy...
+    Get key: https://aistudio.google.com/apikey
+
+  Or create a .env file in this directory:
+    GROQ_API_KEY=gsk_...
+    # or
+    GEMINI_API_KEY=AIzaSy...
 
 Integration with Claude Code:
-  Add an alias to your shell profile:
-    pe() { enhanced=$(python /path/to/enhance.py "$@"); echo "$enhanced"; }
-    pec() { python /path/to/enhance.py "$@" --action Code | claude; }
+  pe() { enhanced=$(python /path/to/enhance.py "$@"); echo "$enhanced"; }
+  pec() { python /path/to/enhance.py "$@" --action Code | claude; }
 
 Integration with Gemini CLI:
-    peg() { python /path/to/enhance.py "$@" | gemini; }
+  peg() { python /path/to/enhance.py "$@" | gemini; }
 """
 
 import sys
@@ -85,6 +94,42 @@ SYSTEM_PROMPTS = {
 }
 
 
+def enhance_with_groq(text: str, action: str, api_key: str, model: str = 'llama-3.3-70b-versatile') -> str:
+    import urllib.request
+    import urllib.error
+    import json
+
+    system = SYSTEM_PROMPTS.get(action, SYSTEM_PROMPTS['Enhance'])
+    payload = json.dumps({
+        'model': model,
+        'messages': [
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': text},
+        ],
+        'temperature': 0.9 if action == 'Creative' else 0.7,
+        'max_tokens': 4096,
+    }).encode()
+
+    req = urllib.request.Request(
+        'https://api.groq.com/openai/v1/chat/completions',
+        data=payload,
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        return data['choices'][0]['message']['content'].strip()
+    except urllib.error.HTTPError as e:
+        body = json.loads(e.read())
+        msg = body.get('error', {}).get('message', f'Groq API error {e.code}')
+        if e.code == 401:
+            raise RuntimeError('Invalid Groq API key. Check GROQ_API_KEY.')
+        if e.code == 429:
+            raise RuntimeError('Groq rate limit reached. Try again in a moment.')
+        raise RuntimeError(msg)
+
+
 def enhance_with_gemini(text: str, action: str, api_key: str) -> str:
     try:
         import google.generativeai as genai
@@ -112,11 +157,17 @@ def enhance_with_gemini(text: str, action: str, api_key: str) -> str:
     return response.text.strip()
 
 
-def enhance_with_backend(text: str, action: str, invite_code: str, backend_url: str) -> str:
+def enhance_with_backend(text: str, action: str, invite_code: str, backend_url: str,
+                         api_key: str = '', provider: str = 'gemini') -> str:
     import urllib.request
     import json
 
-    payload = json.dumps({'text': text, 'action': action}).encode()
+    body: dict = {'text': text, 'action': action}
+    if api_key:
+        body['api_key'] = api_key
+        body['provider'] = provider
+
+    payload = json.dumps(body).encode()
     req = urllib.request.Request(
         f"{backend_url.rstrip('/')}/api/enhance/",
         data=payload,
@@ -147,7 +198,7 @@ def copy_to_clipboard(text: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description='PromptEnhancer Pro CLI — enhance prompts with Gemini AI',
+        description='PromptEnhancer Pro CLI — BYOK enhancement with Groq or Gemini',
     )
     parser.add_argument('prompt', nargs='?', help='Text to enhance (omit to read from stdin)')
     parser.add_argument(
@@ -156,11 +207,17 @@ def main() -> None:
         default='Enhance',
         help='Enhancement action (default: Enhance)',
     )
+    parser.add_argument(
+        '--provider', '-p',
+        choices=['groq', 'gemini'],
+        default=None,
+        help='AI provider: groq or gemini (auto-detected from env vars if not set)',
+    )
     parser.add_argument('--clipboard', '-c', action='store_true', help='Copy result to clipboard')
     parser.add_argument('--quiet', '-q', action='store_true', help='Only output the enhanced text')
     parser.add_argument(
         '--backend', '-b',
-        help='Use backend URL instead of direct Gemini API (requires --invite-code)',
+        help='Use backend URL instead of direct API (requires --invite-code)',
     )
     parser.add_argument('--invite-code', '-i', help='Invite code for backend API')
     args = parser.parse_args()
@@ -184,8 +241,21 @@ def main() -> None:
         print('ERROR: Empty input.', file=sys.stderr)
         sys.exit(1)
 
+    # Resolve provider and API key
+    groq_key = os.environ.get('GROQ_API_KEY', '')
+    gemini_key = os.environ.get('GEMINI_API_KEY', '')
+
+    if args.provider:
+        provider = args.provider
+    elif groq_key:
+        provider = 'groq'
+    elif gemini_key:
+        provider = 'gemini'
+    else:
+        provider = 'gemini'  # will fail below with a helpful message
+
     if not args.quiet:
-        print(f'[PromptEnhancer] Action: {args.action} | Length: {len(text)} chars', file=sys.stderr)
+        print(f'[PromptEnhancer] Action: {args.action} | Provider: {provider} | Length: {len(text)} chars', file=sys.stderr)
 
     try:
         if args.backend:
@@ -196,18 +266,28 @@ def main() -> None:
                     file=sys.stderr,
                 )
                 sys.exit(1)
-            enhanced = enhance_with_backend(text, args.action, invite, args.backend)
-        else:
-            api_key = os.environ.get('GEMINI_API_KEY', '')
-            if not api_key:
+            api_key = groq_key if provider == 'groq' else gemini_key
+            enhanced = enhance_with_backend(text, args.action, invite, args.backend, api_key, provider)
+        elif provider == 'groq':
+            if not groq_key:
                 print(
-                    'ERROR: GEMINI_API_KEY environment variable not set.\n'
-                    'Get a free key at https://aistudio.google.com/apikey\n'
-                    'Then run: export GEMINI_API_KEY="AIzaSy..."',
+                    'ERROR: GROQ_API_KEY environment variable not set.\n'
+                    'Get a free key at https://console.groq.com/keys\n'
+                    'Then run: export GROQ_API_KEY="gsk_..."',
                     file=sys.stderr,
                 )
                 sys.exit(1)
-            enhanced = enhance_with_gemini(text, args.action, api_key)
+            enhanced = enhance_with_groq(text, args.action, groq_key)
+        else:
+            if not gemini_key:
+                print(
+                    'ERROR: No API key found. Set one of:\n'
+                    '  GROQ_API_KEY=gsk_...      (https://console.groq.com/keys)\n'
+                    '  GEMINI_API_KEY=AIzaSy...   (https://aistudio.google.com/apikey)',
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            enhanced = enhance_with_gemini(text, args.action, gemini_key)
 
         if args.clipboard:
             copy_to_clipboard(enhanced)

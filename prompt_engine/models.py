@@ -94,9 +94,9 @@ class EnhancementLog(models.Model):
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['created_at']),
-            models.Index(fields=['action']),
-            models.Index(fields=['provider']),
+            models.Index(fields=['created_at'], name='prompt_engi_created_3d8b2e_idx'),
+            models.Index(fields=['action'], name='prompt_engi_action_a1b2c3_idx'),
+            models.Index(fields=['provider'], name='prompt_engi_provide_d4e5f6_idx'),
         ]
 
     def __str__(self):

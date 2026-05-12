@@ -78,6 +78,8 @@ function App() {
   const [apiModel, setApiModel] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
   const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [verifyStatus, setVerifyStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
+  const [verifyMsg, setVerifyMsg] = useState('');
 
   useEffect(() => {
     if (typeof chrome !== 'undefined' && chrome.storage) {
@@ -155,8 +157,31 @@ function App() {
       chrome.storage.local.set({ apiSettings: newSettings }, () => {
         setApiSettings(newSettings);
         setApiKeySaved(true);
+        setVerifyStatus('idle');
+        setVerifyMsg('');
         setTimeout(() => setApiKeySaved(false), 2000);
       });
+    }
+  };
+
+  const verifyApiKey = () => {
+    if (!apiKeyInput.trim()) return;
+    setVerifyStatus('loading');
+    setVerifyMsg('');
+    if (typeof chrome !== 'undefined' && chrome.runtime) {
+      chrome.runtime.sendMessage(
+        { action: 'verifyApiKey', apiKey: apiKeyInput.trim(), provider: apiProvider },
+        (response: any) => {
+          if (response?.valid) {
+            setVerifyStatus('ok');
+            setVerifyMsg('API key is valid!');
+          } else {
+            setVerifyStatus('error');
+            setVerifyMsg(response?.error || 'Invalid API key.');
+          }
+          setTimeout(() => { setVerifyStatus('idle'); setVerifyMsg(''); }, 4000);
+        },
+      );
     }
   };
 
@@ -549,6 +574,28 @@ function App() {
                         : <Eye style={{ width: 14, height: 14 }} strokeWidth={1.5} />}
                     </button>
                   </div>
+                </div>
+
+                {/* Verify key */}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                  <button
+                    onClick={verifyApiKey}
+                    disabled={verifyStatus === 'loading' || !apiKeyInput.trim()}
+                    style={{
+                      flex: 1, padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                      border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
+                      color: verifyStatus === 'ok' ? '#10B981' : verifyStatus === 'error' ? '#EF4444' : '#A1A1AA',
+                      cursor: verifyStatus === 'loading' || !apiKeyInput.trim() ? 'not-allowed' : 'pointer',
+                      fontFamily: 'inherit', opacity: !apiKeyInput.trim() ? 0.4 : 1,
+                    }}
+                  >
+                    {verifyStatus === 'loading' ? '⏳ Verifying…' : verifyStatus === 'ok' ? '✓ Valid' : verifyStatus === 'error' ? '✗ Invalid' : 'Verify Key'}
+                  </button>
+                  {verifyMsg && (
+                    <span style={{ fontSize: 10, color: verifyStatus === 'ok' ? '#10B981' : '#EF4444' }}>
+                      {verifyMsg}
+                    </span>
+                  )}
                 </div>
 
                 {/* Get API key links */}

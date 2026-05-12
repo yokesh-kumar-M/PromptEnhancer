@@ -141,13 +141,13 @@ def _find_invite(code: str):
         return None
 
 
-def _call_gemini(text: str, action: str, api_key: str) -> str:
+def _call_gemini(text: str, action: str, api_key: str, model_name: str = '') -> str:
     import google.generativeai as genai
 
     genai.configure(api_key=api_key)
     system = SYSTEM_PROMPTS.get(action, SYSTEM_PROMPTS['Enhance'])
     model = genai.GenerativeModel(
-        model_name='gemini-2.5-flash',
+        model_name=model_name or 'gemini-2.5-flash',
         system_instruction=system,
     )
     response = model.generate_content(
@@ -158,6 +158,43 @@ def _call_gemini(text: str, action: str, api_key: str) -> str:
         ),
     )
     return response.text.strip()
+
+
+def _call_groq(text: str, action: str, api_key: str, model_name: str = '') -> str:
+    import urllib.request
+    import urllib.error
+    import json as _json
+
+    m = model_name or 'llama-3.3-70b-versatile'
+    system = SYSTEM_PROMPTS.get(action, SYSTEM_PROMPTS['Enhance'])
+    payload = _json.dumps({
+        'model': m,
+        'messages': [
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': text},
+        ],
+        'temperature': 0.9 if action == 'Creative' else 0.7,
+        'max_tokens': 4096,
+    }).encode()
+
+    req = urllib.request.Request(
+        'https://api.groq.com/openai/v1/chat/completions',
+        data=payload,
+        headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+        method='POST',
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = _json.loads(resp.read())
+        return data['choices'][0]['message']['content'].strip()
+    except urllib.error.HTTPError as e:
+        body = _json.loads(e.read())
+        msg = body.get('error', {}).get('message', f'Groq API error {e.code}')
+        if e.code == 401:
+            raise ValueError('Invalid Groq API key.')
+        if e.code == 429:
+            raise ValueError('Groq rate limit reached. Try again in a moment.')
+        raise ValueError(msg)
 
 
 # ======================== PUBLIC API VIEWS ========================
@@ -187,7 +224,7 @@ def validate_invite(request):
 @csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
 def enhance_prompt(request):
-    """Server-side enhancement endpoint — used by VS Code extension and CLI."""
+    """BYOK enhancement endpoint — accepts user's own api_key + provider in the request body."""
     if request.method == 'OPTIONS':
         return JsonResponse({})
 
@@ -200,6 +237,9 @@ def enhance_prompt(request):
         data = json.loads(request.body)
         text = data.get('text', '').strip()
         action = data.get('action', 'Enhance')
+        user_api_key = data.get('api_key', '').strip()
+        provider = data.get('provider', 'gemini').lower()
+        model = data.get('model', '').strip()
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'error': 'Invalid request body'}, status=400)
 
@@ -208,12 +248,29 @@ def enhance_prompt(request):
     if len(text) > 10000:
         return JsonResponse({'error': 'Text too long (max 10 000 chars)'}, status=400)
 
-    api_key = config('GEMINI_API_KEY', default='')
-    if not api_key or api_key == 'your-gemini-api-key-here':
-        return JsonResponse({'error': 'Enhancement service not configured on server'}, status=503)
+    # BYOK: use user's key if provided, otherwise fall back to server Gemini key
+    if user_api_key:
+        api_key = user_api_key
+    elif provider == 'gemini':
+        api_key = config('GEMINI_API_KEY', default='')
+        if not api_key or api_key == 'your-gemini-api-key-here':
+            return JsonResponse(
+                {'error': 'No API key provided. Add your api_key to the request body.'},
+                status=400,
+            )
+    else:
+        return JsonResponse(
+            {'error': f'API key required for provider "{provider}". Add your api_key to the request body.'},
+            status=400,
+        )
 
     try:
-        result = _call_gemini(text, action, api_key)
+        if provider == 'groq':
+            result = _call_groq(text, action, api_key, model)
+            resolved_model = model or 'llama-3.3-70b-versatile'
+        else:
+            result = _call_gemini(text, action, api_key, model)
+            resolved_model = model or 'gemini-2.5-flash'
 
         invite.total_uses += 1
         invite.last_used_at = timezone.now()
@@ -222,8 +279,8 @@ def enhance_prompt(request):
         EnhancementLog.objects.create(
             invite_code=invite,
             action=action,
-            provider='gemini',
-            model_used='gemini-2.5-flash',
+            provider=provider,
+            model_used=resolved_model,
             original_char_count=len(text),
             enhanced_char_count=len(result),
         )
@@ -278,6 +335,49 @@ def log_usage(request):
             pass
 
     return JsonResponse({'logged': True})
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def verify_key(request):
+    """Validate a user-supplied API key with a lightweight models-list check (no generation cost)."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+
+    try:
+        data = json.loads(request.body)
+        api_key = data.get('api_key', '').strip()
+        provider = data.get('provider', 'gemini').lower()
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'valid': False, 'error': 'Invalid request'}, status=400)
+
+    if not api_key:
+        return JsonResponse({'valid': False, 'error': 'api_key is required'}, status=400)
+
+    import urllib.request as _req
+    import urllib.error as _err
+
+    try:
+        if provider == 'groq':
+            req = _req.Request(
+                'https://api.groq.com/openai/v1/models',
+                headers={'Authorization': f'Bearer {api_key}'},
+                method='GET',
+            )
+        else:
+            req = _req.Request(
+                f'https://generativelanguage.googleapis.com/v1beta/models?key={api_key}',
+                method='GET',
+            )
+        with _req.urlopen(req, timeout=10) as resp:
+            resp.read()
+        return JsonResponse({'valid': True, 'provider': provider})
+    except _err.HTTPError as e:
+        if e.code in (400, 401, 403):
+            return JsonResponse({'valid': False, 'error': 'Invalid API key'})
+        return JsonResponse({'valid': False, 'error': f'Provider returned {e.code}'})
+    except Exception as exc:
+        return JsonResponse({'valid': False, 'error': str(exc)})
 
 
 # ======================== ADMIN API VIEWS ========================
