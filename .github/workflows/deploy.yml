@@ -57,7 +57,7 @@ jobs:
         working-directory: extension-react
         run: npm run build
         env:
-          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL || 'https://promptenhancer.onrender.com' }}
+          VITE_BACKEND_URL: ${{ secrets.BACKEND_URL || 'https://promptenhancer-backend.onrender.com' }}
 
       - name: Package Extension
         run: |

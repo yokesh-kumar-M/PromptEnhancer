@@ -29,7 +29,7 @@ services:
       - key: CORS_ALLOW_ALL_ORIGINS
         value: "True"
       - key: CORS_ALLOWED_ORIGINS
-        value: "https://promptenhancer.vercel.app"
+        value: "https://promptenhancer-frontend.vercel.app"
       - key: BACKEND_URL
         value: "https://promptenhancer-backend.onrender.com"
       - key: PYTHON_VERSION
