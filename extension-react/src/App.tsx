@@ -67,8 +67,8 @@ function App() {
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [stats, setStats] = useState({ total: 0, today: 0 });
-  const [backendUrl, setBackendUrl] = useState('http://localhost:8000');
-  const [backendUrlInput, setBackendUrlInput] = useState('');
+  const [backendUrl, setBackendUrl] = useState('https://promptenhancer-backend.onrender.com');
+  const [backendUrlInput, setBackendUrlInput] = useState('https://promptenhancer-backend.onrender.com');
   const [urlSaved, setUrlSaved] = useState(false);
 
   // BYOK state
@@ -638,7 +638,7 @@ function App() {
                   Point to your deployed PromptEnhancer backend.
                 </p>
                 <div className="input-group">
-                  <input type="text" className="input" placeholder="https://your-app.railway.app" value={backendUrlInput} onChange={(e) => setBackendUrlInput(e.target.value)} spellCheck={false} />
+                  <input type="text" className="input" placeholder="https://promptenhancer-backend.onrender.com" value={backendUrlInput} onChange={(e) => setBackendUrlInput(e.target.value)} spellCheck={false} />
                 </div>
                 <button onClick={saveBackendUrl} disabled={!backendUrlInput.trim() || backendUrlInput.trim() === backendUrl} className="btn-primary" style={{ marginTop: 8 }}>
                   {urlSaved ? '✓ Saved' : 'Save URL'}

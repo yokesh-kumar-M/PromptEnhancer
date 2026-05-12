@@ -2,7 +2,7 @@ console.log('[PromptEnhancer Pro] Background service worker initialized.');
 
 // ======================== CONFIG ========================
 
-const DEFAULT_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+const DEFAULT_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://promptenhancer-backend.onrender.com';
 
 // ======================== SYSTEM PROMPTS ========================
 
@@ -37,7 +37,7 @@ chrome.runtime.onInstalled.addListener((details) => {
       settings: {
         autoDetect: true,
         historyLimit: 50,
-        backendUrl: DEFAULT_BACKEND_URL,
+        backendUrl: 'https://promptenhancer-backend.onrender.com',
       },
       apiSettings: {
         provider: 'gemini',
@@ -274,17 +274,26 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     chrome.storage.local.get(['settings'], async (result) => {
       const settings = (result.settings as Record<string, unknown>) || {};
       const backendUrl = (settings.backendUrl as string) || DEFAULT_BACKEND_URL;
-      try {
-        const resp = await fetch(`${backendUrl}/api/validate-invite/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code: request.code }),
-        });
-        const data = await resp.json();
-        sendResponse(data);
-      } catch (err: any) {
-        sendResponse({ valid: false, message: `Cannot reach server: ${err.message}` });
-      }
+
+      const tryFetch = async (attempt: number): Promise<void> => {
+        try {
+          const resp = await fetch(`${backendUrl}/api/validate-invite/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: request.code }),
+            signal: AbortSignal.timeout(20000),
+          });
+          sendResponse(await resp.json());
+        } catch {
+          if (attempt < 2) {
+            setTimeout(() => tryFetch(attempt + 1), 6000);
+          } else {
+            sendResponse({ valid: false, message: 'Backend unreachable. It may still be starting — try again in 30s.' });
+          }
+        }
+      };
+
+      tryFetch(0);
     });
     return true;
   }
@@ -293,17 +302,26 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     chrome.storage.local.get(['settings'], async (result) => {
       const settings = (result.settings as Record<string, unknown>) || {};
       const backendUrl = (settings.backendUrl as string) || DEFAULT_BACKEND_URL;
-      try {
-        const resp = await fetch(`${backendUrl}/api/verify-key/`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ api_key: request.apiKey, provider: request.provider }),
-        });
-        const data = await resp.json();
-        sendResponse(data);
-      } catch (err: any) {
-        sendResponse({ valid: false, error: `Cannot reach server: ${err.message}` });
-      }
+
+      const tryFetch = async (attempt: number): Promise<void> => {
+        try {
+          const resp = await fetch(`${backendUrl}/api/verify-key/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ api_key: request.apiKey, provider: request.provider }),
+            signal: AbortSignal.timeout(20000),
+          });
+          sendResponse(await resp.json());
+        } catch {
+          if (attempt < 2) {
+            setTimeout(() => tryFetch(attempt + 1), 6000);
+          } else {
+            sendResponse({ valid: false, error: 'Backend unreachable. It may be starting — try again in 30s.' });
+          }
+        }
+      };
+
+      tryFetch(0);
     });
     return true;
   }
