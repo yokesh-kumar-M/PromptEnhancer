@@ -235,63 +235,63 @@ function App() {
   // ---- Gate: invite code screen ----
   if (!inviteCode) {
     return (
-      <div className="popup-container">
-        <div className="glow glow-top" />
-        <header className="header">
-          <div className="header-brand">
-            <div className="header-icon-wrap">
-              <Sparkles className="header-icon" strokeWidth={1.5} />
-            </div>
-            <div>
-              <h1 className="header-title">PromptEnhancer Pro</h1>
-              <p className="header-subtitle">Invite-only · v2.0</p>
-            </div>
+      <div className="popup-container gate-container">
+        <main className="gate-main">
+          <div className="gate-icon-wrap">
+            <KeyRound className="gate-icon" strokeWidth={1.5} />
           </div>
-        </header>
 
-        <main className="main-content" style={{ paddingTop: 16 }}>
-          <div className="card" style={{ textAlign: 'center', padding: '24px 20px' }}>
-            <KeyRound style={{ width: 40, height: 40, color: '#8B5CF6', margin: '0 auto 12px' }} strokeWidth={1.5} />
-            <div className="card-label" style={{ fontSize: 15, marginBottom: 6 }}>Enter Your Invite Code</div>
-            <p className="card-description" style={{ marginBottom: 16 }}>
-              PromptEnhancer Pro is invite-only. Enter the code from your approval email.
-            </p>
-            <div className="input-group">
-              <input
-                type="text"
-                className="input"
-                placeholder="XXXX-XXXX-XXXX"
-                value={inviteInput}
-                onChange={(e) => setInviteInput(e.target.value)}
-                spellCheck={false}
-                autoComplete="off"
-                onKeyDown={(e) => e.key === 'Enter' && validateInvite()}
-                style={{ textAlign: 'center', letterSpacing: '0.05em', textTransform: 'uppercase' }}
-              />
-            </div>
-            {validateMsg && (
-              <p style={{ marginTop: 8, fontSize: 12, color: validateStatus === 'error' ? '#EF4444' : '#10B981' }}>
-                {validateMsg}
-              </p>
-            )}
-            <button
-              onClick={validateInvite}
-              disabled={validateStatus === 'loading' || !inviteInput.trim()}
-              className="btn-primary"
-              style={{ marginTop: 12 }}
-            >
-              <AnimatePresence mode="wait">
-                {validateStatus === 'idle' && <motion.span key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>Validate Code</motion.span>}
-                {validateStatus === 'loading' && <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Loader2 style={{ width: 18, height: 18, animation: 'spin 1s linear infinite' }} strokeWidth={2} /></motion.div>}
-                {(validateStatus === 'success' || validateStatus === 'error') && <motion.span key="done" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>{validateStatus === 'success' ? '✓ Access Granted' : '✗ Try Again'}</motion.span>}
-              </AnimatePresence>
-            </button>
+          <div className="gate-badge">
+            <ShieldCheck style={{ width: 10, height: 10 }} strokeWidth={2} />
+            Invite-only · v2.0
           </div>
-          <div className="card" style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 11, color: '#52525B', lineHeight: 1.6 }}>
-              <strong style={{ color: '#A1A1AA' }}>Need access?</strong>{' '}
-              Visit the web app to request an invite. Codes are personal and non-transferable.
+
+          <h1 className="gate-title">Enter Your Invite Code</h1>
+          <p className="gate-desc">
+            PromptEnhancer Pro is invite-only.<br />Enter the code from your approval email.
+          </p>
+
+          <div className="gate-input-group">
+            <input
+              type="text"
+              className="gate-input"
+              placeholder="XXXX-XXXX-XXXX"
+              value={inviteInput}
+              onChange={(e) => setInviteInput(e.target.value.toUpperCase())}
+              spellCheck={false}
+              autoComplete="off"
+              onKeyDown={(e) => e.key === 'Enter' && validateInvite()}
+            />
+          </div>
+
+          {validateMsg && (
+            <div className="gate-msg" style={{ color: validateStatus === 'error' ? '#EF4444' : '#10B981' }}>
+              {validateStatus === 'success'
+                ? <Check style={{ width: 13, height: 13 }} strokeWidth={2.5} />
+                : <AlertCircle style={{ width: 13, height: 13 }} strokeWidth={2} />}
+              {validateMsg}
             </div>
+          )}
+
+          <button
+            onClick={validateInvite}
+            disabled={validateStatus === 'loading' || !inviteInput.trim()}
+            className="gate-btn"
+          >
+            <AnimatePresence mode="wait">
+              {validateStatus === 'idle' && <motion.span key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>Validate Code</motion.span>}
+              {validateStatus === 'loading' && <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Loader2 style={{ width: 18, height: 18, animation: 'spin 1s linear infinite' }} strokeWidth={2} /></motion.div>}
+              {(validateStatus === 'success' || validateStatus === 'error') && <motion.span key="done" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>{validateStatus === 'success' ? '✓ Access Granted' : '✗ Try Again'}</motion.span>}
+            </AnimatePresence>
+          </button>
+
+          <div className="gate-divider" />
+
+          <div className="gate-access">
+            Need access?&nbsp;
+            <a href="https://promptenhancer-frontend.vercel.app/register" target="_blank" rel="noopener noreferrer">
+              Request an invite →
+            </a>
           </div>
         </main>
 
@@ -351,7 +351,7 @@ function App() {
               </div>
 
               {!hasApiKey && (
-                <div className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8, padding: '12px 14px' }}>
+                <div className="warn-card">
                   <AlertCircle style={{ width: 16, height: 16, color: '#F59E0B', flexShrink: 0, marginTop: 1 }} strokeWidth={1.5} />
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#FAFAFA', marginBottom: 2 }}>API Key Required</div>
@@ -363,38 +363,34 @@ function App() {
               )}
 
               {hasApiKey && (
-                <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div className="ready-card">
+                  <div className="ready-icon">
                     <Check style={{ width: 16, height: 16, color: '#10B981' }} strokeWidth={2.5} />
                   </div>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#FAFAFA' }}>Ready to Enhance</div>
-                    <div style={{ fontSize: 11, color: '#52525B', marginTop: 2 }}>
+                    <div className="ready-title">Ready to Enhance</div>
+                    <div className="ready-sub">
                       {apiSettings.provider === 'groq' ? '⚡ Groq' : '✦ Gemini'} · {apiSettings.model || (apiSettings.provider === 'groq' ? 'Llama 3.3 70B' : 'Gemini 2.0 Flash')}
                     </div>
                   </div>
                 </div>
               )}
 
-              <div className="card guide-card" style={{ marginTop: 8 }}>
-                <div className="guide-title">How to Use</div>
-                <div className="guide-steps">
-                  <div className="guide-step"><span className="guide-step-num">1</span><span>Go to any AI chat (Claude, ChatGPT, Gemini…)</span></div>
-                  <div className="guide-step"><span className="guide-step-num">2</span><span>Click the <Sparkles style={{ width: 12, height: 12, color: '#8B5CF6', display: 'inline' }} /> button on the text input</span></div>
-                  <div className="guide-step"><span className="guide-step-num">3</span><span>Pick a mode — your prompt is enhanced instantly ✨</span></div>
-                </div>
+              <div className="card" style={{ marginTop: 0 }}>
+                <div className="how-title">How to Use</div>
+                <div className="how-step"><span className="how-num">1</span><span>Go to any AI chat (Claude, ChatGPT, Gemini…)</span></div>
+                <div className="how-step"><span className="how-num">2</span><span>Click the <Sparkles style={{ width: 12, height: 12, color: '#8B5CF6', display: 'inline' }} /> button on the text input</span></div>
+                <div className="how-step" style={{ marginBottom: 0 }}><span className="how-num">3</span><span>Pick a mode — your prompt is enhanced instantly ✨</span></div>
               </div>
 
-              <div className="card" style={{ marginTop: 8 }}>
-                <div className="guide-title" style={{ marginBottom: 8 }}>Enhancement Modes</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="card" style={{ marginTop: 10 }}>
+                <div className="how-title" style={{ marginBottom: 10 }}>Enhancement Modes</div>
+                <div className="mode-grid">
                   {MODE_GUIDE.map((m) => (
-                    <div key={m.mode} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                      <span style={{ color: m.color, flexShrink: 0, marginTop: 2 }}>{m.icon}</span>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: '#FAFAFA' }}>{m.mode}</div>
-                        <div style={{ fontSize: 11, color: '#71717A', lineHeight: 1.4 }}>{m.desc}</div>
-                      </div>
+                    <div key={m.mode} className="mode-row">
+                      <div className="mode-dot" style={{ background: m.color }} />
+                      <div className="mode-name" style={{ color: m.color }}>{m.mode}</div>
+                      <div className="mode-desc">{m.desc}</div>
                     </div>
                   ))}
                 </div>
