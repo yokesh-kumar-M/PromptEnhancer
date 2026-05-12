@@ -586,6 +586,9 @@ def api_login(request):
 
     if not user or not user.is_active:
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
+        
+    if not user.is_superuser:
+        return JsonResponse({'error': 'Admin access required. Please request an Access Token.'}, status=403)
 
     from rest_framework.authtoken.models import Token
     token, _ = Token.objects.get_or_create(user=user)
