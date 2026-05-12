@@ -1,80 +1,126 @@
-name: Deploy PromptEnhancer Pro
+name: CI/CD — PromptEnhancer Pro
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  test-backend:
-    name: Test Django Backend
+  # ─────────────────────────────────────────────────────────────
+  # 1. Backend — Django tests & system checks
+  # ─────────────────────────────────────────────────────────────
+  backend-ci:
+    name: Backend · Django CI
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Run Django System Checks
+      - name: Django system checks & migrations
         env:
-          SECRET_KEY: "ci-test-secret-key-not-for-production"
+          SECRET_KEY: ci-test-secret-key-not-for-production
           DEBUG: "True"
-          GEMINI_API_KEY: "test-key-placeholder"
-          ADMIN_EMAIL: "test@example.com"
-          BACKEND_URL: "http://localhost:8000"
+          GEMINI_API_KEY: test-key-placeholder
+          ADMIN_EMAIL: test@example.com
+          BACKEND_URL: http://localhost:8000
         run: |
           python manage.py check
           python manage.py migrate --run-syncdb
           python manage.py makemigrations --check --dry-run
 
-  build-chrome-extension:
-    name: Build Chrome Extension
+  # ─────────────────────────────────────────────────────────────
+  # 2. Frontend — build & deploy to Vercel
+  # ─────────────────────────────────────────────────────────────
+  frontend-deploy:
+    name: Frontend · Vercel Deploy
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: extension-react/package-lock.json
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Install Dependencies
-        working-directory: extension-react
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build Extension
-        working-directory: extension-react
+      - name: Build
+        env:
+          VITE_BACKEND_URL: https://promptenhancer-backend.onrender.com
         run: npm run build
+
+      - name: Deploy to Vercel (production)
+        run: npx vercel --prod --yes --token ${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: prj_QqNnXPmw1OQHTqqzmxjM6cplDkSj
+
+  # ─────────────────────────────────────────────────────────────
+  # 3. Chrome extension — build & package
+  # ─────────────────────────────────────────────────────────────
+  extension-build:
+    name: Extension · Chrome Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build extension
         env:
           VITE_BACKEND_URL: ${{ secrets.BACKEND_URL || 'https://promptenhancer-backend.onrender.com' }}
+        run: npm run build
 
-      - name: Package Extension
+      - name: Package extension
         run: |
-          cd extension-react/dist
+          cd dist
           zip -r ../../prompt-enhancer-chrome.zip .
-          echo "Chrome extension packaged: $(du -sh ../../prompt-enhancer-chrome.zip | cut -f1)"
+          echo "Packaged: $(du -sh ../../prompt-enhancer-chrome.zip | cut -f1)"
 
-      - name: Upload Chrome Extension Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: chrome-extension
           path: prompt-enhancer-chrome.zip
           retention-days: 90
 
-  build-vscode-extension:
-    name: Build VS Code Extension
+  # ─────────────────────────────────────────────────────────────
+  # 4. VS Code extension — compile & package
+  # ─────────────────────────────────────────────────────────────
+  vscode-build:
+    name: Extension · VS Code Build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
     steps:
       - uses: actions/checkout@v4
 
@@ -82,65 +128,59 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Dependencies
-        working-directory: vscode-extension
+      - name: Install dependencies
         run: npm ci --prefer-offline || npm install
 
       - name: Compile TypeScript
-        working-directory: vscode-extension
         run: npm run compile
 
-      - name: Package VS Code Extension
-        working-directory: vscode-extension
+      - name: Package VSIX
         run: npx @vscode/vsce package --no-dependencies -o ../prompt-enhancer-vscode.vsix
 
-      - name: Upload VS Code Extension Artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: vscode-extension
           path: prompt-enhancer-vscode.vsix
           retention-days: 90
 
-  create-release:
-    name: Create GitHub Release
-    needs: [test-backend, build-chrome-extension, build-vscode-extension]
+  # ─────────────────────────────────────────────────────────────
+  # 5. GitHub Release — bundles all artifacts
+  # ─────────────────────────────────────────────────────────────
+  release:
+    name: GitHub Release
+    needs: [backend-ci, frontend-deploy, extension-build, vscode-build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Generate Version Tag
+      - name: Generate version tag
         id: version
         run: |
           TAG="v$(date +'%Y.%m.%d')-build${{ github.run_number }}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Generated tag: $TAG"
 
-      - name: Download Chrome Extension
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: chrome-extension
           path: release-assets/
 
-      - name: Download VS Code Extension
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: vscode-extension
           path: release-assets/
 
-      - name: Package CLI Tool
+      - name: Package CLI
         run: |
-          zip -j release-assets/prompt-enhancer-cli.zip cli/enhance.py cli/shell_integration.sh cli/shell_integration.ps1
-          echo "CLI packaged"
+          zip -j release-assets/prompt-enhancer-cli.zip \
+            cli/enhance.py cli/shell_integration.sh cli/shell_integration.ps1
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "PromptEnhancer Pro ${{ steps.version.outputs.tag }}"
-          draft: false
-          prerelease: false
           generate_release_notes: true
           files: |
             release-assets/prompt-enhancer-chrome.zip
@@ -149,18 +189,10 @@ jobs:
           body: |
             ## PromptEnhancer Pro ${{ steps.version.outputs.tag }}
 
-            ### Downloads
+            | Platform | File | How to install |
+            |----------|------|----------------|
+            | Chrome Extension | `prompt-enhancer-chrome.zip` | Unzip → `chrome://extensions` → Dev mode → Load unpacked |
+            | VS Code Extension | `prompt-enhancer-vscode.vsix` | Extensions panel → `...` → Install from VSIX |
+            | CLI Tool | `prompt-enhancer-cli.zip` | Unzip → `pip install google-generativeai` → set `GEMINI_API_KEY` |
 
-            | Platform | File | Instructions |
-            |----------|------|--------------|
-            | Chrome Extension | `prompt-enhancer-chrome.zip` | Unzip → Chrome → `chrome://extensions` → Enable Developer Mode → Load Unpacked |
-            | VS Code Extension | `prompt-enhancer-vscode.vsix` | VS Code → Extensions → `...` → Install from VSIX |
-            | CLI Tool | `prompt-enhancer-cli.zip` | Unzip → `pip install google-generativeai` → `export GEMINI_API_KEY=...` |
-
-            ### What's New
-            Auto-generated from commit `${{ github.sha }}` on branch `${{ github.ref_name }}`.
-
-            ### Setup
-            1. Get a free [Gemini API key](https://aistudio.google.com/apikey) or [Groq API key](https://console.groq.com/keys)
-            2. Install your preferred platform extension above
-            3. Enter your API key in the extension settings
+            Built from commit `${{ github.sha }}`.

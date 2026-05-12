@@ -141,13 +141,9 @@ export default function Login() {
         </div>
 
         <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 6 }}>
-            Don't have an account?{' '}
-            <Link to="/request-access" style={{ color: 'var(--violet-light)', fontWeight: 500 }}>Request access →</Link>
-          </p>
           <p style={{ fontSize: 13, color: 'var(--text-3)' }}>
-            Have an invite code?{' '}
-            <Link to="/register" style={{ color: 'var(--violet-light)', fontWeight: 500 }}>Register →</Link>
+            Need an Access Token?{' '}
+            <Link to="/request-access" style={{ color: 'var(--violet-light)', fontWeight: 500 }}>Request access &rarr;</Link>
           </p>
         </div>
       </div>

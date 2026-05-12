@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, clearToken, getStoredUser } from '../lib/api'
 
 interface Stats { total: number; today: number; week: number; month: number; avg_per_day: number }
 interface ActionItem { name: string; count: number; pct: number }
 interface LogItem { action: string; provider: string; model_used: string; domain: string; original_char_count: number; enhanced_char_count: number; created_at: string }
+interface InviteItem { id: number; code: string; label: string; email: string; is_active: boolean; total_uses: number; max_uses: number; created_at: string; last_used_at: string | null }
 interface DashData {
   user: { name: string; email: string }
   stats: Stats
@@ -57,6 +58,8 @@ function timeSince(dateStr: string) {
   return `${Math.floor(diff / 86400)}d ago`
 }
 
+const FRONTEND_URL = 'https://promptenhancer-frontend.vercel.app'
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const { time, date } = useClock()
@@ -77,19 +80,56 @@ export default function Dashboard() {
   const [inviteMax, setInviteMax] = useState('0')
   const [generatedCode, setGeneratedCode] = useState('')
   const [inviteLoading, setInviteLoading] = useState(false)
+  const [inviteError, setInviteError] = useState('')
   const [copyLabel, setCopyLabel] = useState('Copy')
   const [copyInviteLabel, setCopyInviteLabel] = useState('Copy')
+  const [invites, setInvites] = useState<InviteItem[]>([])
+  const [invitesLoading, setInvitesLoading] = useState(false)
+  const [copiedCodes, setCopiedCodes] = useState<Record<number, boolean>>({})
 
   const storedUser = getStoredUser()
+  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  async function fetchStats() {
+    try {
+      const res = await api.dashboardStats()
+      if (res.status === 401 || res.status === 403) { clearToken(); navigate('/login'); return }
+      if (res.ok) {
+        const d = await res.json()
+        setData(d)
+      }
+    } catch { /* network error — keep showing cached data */ }
+  }
+
+  async function loadInvites() {
+    setInvitesLoading(true)
+    try {
+      const res = await api.adminInvites()
+      if (res.ok) {
+        const d = await res.json()
+        setInvites(d.invites || [])
+      }
+    } catch { /* ignore */ }
+    setInvitesLoading(false)
+  }
 
   useEffect(() => {
     if (!storedUser) { navigate('/login'); return }
+
     api.dashboardStats().then(async res => {
       if (res.status === 401 || res.status === 403) { clearToken(); navigate('/login'); return }
       const d = await res.json()
       setData(d)
       setLoading(false)
     }).catch(() => setLoading(false))
+
+    loadInvites()
+
+    // Auto-refresh stats every 30 seconds
+    refreshTimerRef.current = setInterval(fetchStats, 30000)
+    return () => {
+      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current)
+    }
   }, [])
 
   async function handleLogout() {
@@ -120,15 +160,29 @@ export default function Dashboard() {
 
   async function generateInvite() {
     setInviteLoading(true)
+    setInviteError('')
     try {
-      const res = await api.adminGenerateInvite({ label: inviteLabel, email: inviteEmail, max_uses: parseInt(inviteMax) || 0 })
+      const res = await api.adminGenerateInvite({
+        label: inviteLabel,
+        email: inviteEmail,
+        max_uses: parseInt(inviteMax) || 0,
+      })
       const d = await res.json()
-      if (d.code) {
+      if (res.ok && d.code) {
         setGeneratedCode(d.code)
         setInviteLabel('')
         setInviteEmail('')
+        setInviteMax('0')
+        setCopyInviteLabel('Copy')
+        // Refresh both invite list and stats
+        loadInvites()
+        fetchStats()
+      } else {
+        setInviteError(d.error || `Server error (${res.status}) — try again`)
       }
-    } catch { /* ignore */ }
+    } catch {
+      setInviteError('Network error — could not reach backend. Check your connection.')
+    }
     setInviteLoading(false)
   }
 
@@ -142,6 +196,21 @@ export default function Dashboard() {
   function copyInvite() {
     navigator.clipboard.writeText(generatedCode).then(() => {
       setCopyInviteLabel('Copied!')
+      setTimeout(() => setCopyInviteLabel('Copy'), 2000)
+    })
+  }
+
+  function copyCode(id: number, code: string) {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopiedCodes(prev => ({ ...prev, [id]: true }))
+      setTimeout(() => setCopiedCodes(prev => ({ ...prev, [id]: false })), 2000)
+    })
+  }
+
+  function copyRegisterUrl(code: string) {
+    const url = `${FRONTEND_URL}/register?code=${code}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopyInviteLabel('URL Copied!')
       setTimeout(() => setCopyInviteLabel('Copy'), 2000)
     })
   }
@@ -285,6 +354,14 @@ export default function Dashboard() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button onClick={fetchStats} title="Refresh stats" style={{
+              display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px',
+              fontSize: 12, fontWeight: 600, border: '1px solid var(--border)', borderRadius: 8,
+              color: 'var(--text-3)', background: 'transparent', cursor: 'pointer',
+            }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Refresh
+            </button>
             <a href={`${data?.backend_url ?? ''}/admin/`} target="_blank" rel="noreferrer" style={{
               display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 16px',
               fontSize: 13, fontWeight: 600, border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-2)',
@@ -510,10 +587,18 @@ export default function Dashboard() {
                 </div>
                 Invite Code Manager
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{data?.invite_count} active / {data?.invite_total} total</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{data?.invite_count} active / {data?.invite_total} total</div>
+                <button onClick={loadInvites} style={{
+                  padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                  border: '1px solid var(--border)', borderRadius: 6, background: 'transparent',
+                  color: 'var(--text-3)', cursor: 'pointer', fontFamily: 'inherit',
+                }}>↻ Reload</button>
+              </div>
             </div>
             <div style={{ padding: 20 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, marginBottom: 20, alignItems: 'end' }}>
+              {/* Generate form */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, marginBottom: 16, alignItems: 'end' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
                   {[
                     { label: 'Label', placeholder: 'e.g. Friend', val: inviteLabel, set: setInviteLabel, type: 'text' },
@@ -530,30 +615,128 @@ export default function Dashboard() {
                   display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 16px',
                   fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
                   background: 'rgba(5,150,105,0.15)', color: 'var(--emerald-light)',
-                  border: '1px solid rgba(5,150,105,0.3)', borderRadius: 8, cursor: 'pointer',
+                  border: '1px solid rgba(5,150,105,0.3)', borderRadius: 8,
+                  cursor: inviteLoading ? 'not-allowed' : 'pointer', opacity: inviteLoading ? 0.6 : 1,
                 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  {inviteLoading ? 'Generating…' : 'Generate'}
+                  {inviteLoading
+                    ? <><span style={{ width: 14, height: 14, border: '2px solid rgba(52,211,153,0.2)', borderTopColor: 'var(--emerald-light)', borderRadius: '50%', animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />Generating…</>
+                    : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Generate</>
+                  }
                 </button>
               </div>
 
+              {/* Error display */}
+              {inviteError && (
+                <div style={{
+                  background: 'rgba(225,29,72,0.08)', border: '1px solid rgba(225,29,72,0.2)',
+                  borderRadius: 8, padding: '10px 14px', color: '#fda4af',
+                  fontSize: 12, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  {inviteError}
+                  <button onClick={() => setInviteError('')} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#fda4af', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>×</button>
+                </div>
+              )}
+
+              {/* Generated code result */}
               {generatedCode && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Generated Invite Code</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--violet-light)', flex: 1, wordBreak: 'break-all' }}>{generatedCode}</span>
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--emerald-light)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                    ✓ Invite Code Generated
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(5,150,105,0.08)', border: '1px solid rgba(5,150,105,0.25)', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, color: 'var(--emerald-light)', flex: 1, wordBreak: 'break-all', fontWeight: 600 }}>{generatedCode}</span>
                     <button onClick={copyInvite} style={{
                       padding: '5px 11px', fontSize: 12, fontWeight: 600,
-                      border: '1px solid var(--border)', borderRadius: 6,
-                      background: 'transparent', color: 'var(--text-2)', cursor: 'pointer', fontFamily: 'inherit',
-                    }}>{copyInviteLabel}</button>
+                      border: '1px solid rgba(5,150,105,0.3)', borderRadius: 6,
+                      background: 'rgba(5,150,105,0.1)', color: 'var(--emerald-light)', cursor: 'pointer', fontFamily: 'inherit',
+                    }}>{copyInviteLabel === 'Copy' ? 'Copy Code' : copyInviteLabel}</button>
+                  </div>
+                  <div style={{ background: 'rgba(124,58,237,0.05)', border: '1px solid rgba(124,58,237,0.15)', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Registration URL</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--violet-light)', flex: 1, wordBreak: 'break-all' }}>
+                        {FRONTEND_URL}/register?code={generatedCode}
+                      </span>
+                      <button onClick={() => copyRegisterUrl(generatedCode)} style={{
+                        padding: '4px 10px', fontSize: 11, fontWeight: 600, flexShrink: 0,
+                        border: '1px solid rgba(124,58,237,0.3)', borderRadius: 6,
+                        background: 'rgba(124,58,237,0.1)', color: 'var(--violet-light)', cursor: 'pointer', fontFamily: 'inherit',
+                      }}>Copy URL</button>
+                    </div>
                   </div>
                   <p style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                    Share this code. Users register at{' '}
-                    <span style={{ color: 'var(--violet-light)' }}>{window.location.origin}/register?code=…</span>
+                    Send either the code alone or the full registration URL to the person you're inviting.
                   </p>
                 </div>
               )}
+
+              {/* Existing invites table */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  All Invite Codes
+                  {invitesLoading && <span style={{ width: 12, height: 12, border: '2px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--violet-light)', borderRadius: '50%', animation: 'spin 0.7s linear infinite', display: 'inline-block' }} />}
+                </div>
+                {invites.length === 0 && !invitesLoading ? (
+                  <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-3)', fontSize: 12 }}>
+                    No invite codes yet. Generate one above.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                          {['Code', 'Label', 'Email', 'Uses', 'Status', 'Created', 'Actions'].map(h => (
+                            <th key={h} style={{ textAlign: 'left', padding: '7px 10px', color: 'var(--text-3)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invites.map(inv => (
+                          <tr key={inv.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                            <td style={{ padding: '8px 10px' }}>
+                              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--violet-light)', letterSpacing: '0.03em' }}>{inv.code}</span>
+                            </td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-2)' }}>{inv.label || '—'}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-3)' }}>{inv.email || '—'}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-3)' }}>
+                              {inv.total_uses}{inv.max_uses > 0 ? `/${inv.max_uses}` : ''}
+                            </td>
+                            <td style={{ padding: '8px 10px' }}>
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 7px',
+                                borderRadius: 20, fontSize: 10, fontWeight: 600,
+                                background: inv.is_active ? 'rgba(5,150,105,0.12)' : 'rgba(100,100,100,0.12)',
+                                color: inv.is_active ? 'var(--emerald-light)' : 'var(--text-3)',
+                              }}>
+                                {inv.is_active ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px 10px', color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{timeSince(inv.created_at)}</td>
+                            <td style={{ padding: '8px 10px' }}>
+                              <div style={{ display: 'flex', gap: 4 }}>
+                                <button
+                                  onClick={() => copyCode(inv.id, inv.code)}
+                                  style={{ padding: '3px 8px', fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', borderRadius: 5, background: 'transparent', color: copiedCodes[inv.id] ? 'var(--emerald-light)' : 'var(--text-3)', cursor: 'pointer', fontFamily: 'inherit' }}
+                                >{copiedCodes[inv.id] ? '✓' : 'Copy'}</button>
+                                <button
+                                  onClick={() => {
+                                    const url = `${FRONTEND_URL}/register?code=${inv.code}`
+                                    navigator.clipboard.writeText(url)
+                                  }}
+                                  style={{ padding: '3px 8px', fontSize: 10, fontWeight: 600, border: '1px solid var(--border)', borderRadius: 5, background: 'transparent', color: 'var(--text-3)', cursor: 'pointer', fontFamily: 'inherit' }}
+                                >URL</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -568,37 +751,87 @@ export default function Dashboard() {
                 </div>
                 Downloads Hub
               </div>
-              <a href="https://github.com/releases" target="_blank" rel="noreferrer" style={{
+              <a href="https://github.com/yokesh-kumar-M/PromptEnhancer/releases" target="_blank" rel="noreferrer" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 11px',
                 fontSize: 12, fontWeight: 600, border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-2)',
               }}>View GitHub Releases</a>
             </div>
             <div style={{ padding: 20 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
                 {[
-                  { icon: '🧩', name: 'Chrome Extension', desc: 'Works on ChatGPT, Claude, Gemini & any website. Floating ✨ button on AI chat inputs.', note: 'Load as unpacked extension via chrome://extensions' },
-                  { icon: '💻', name: 'VS Code Extension', desc: 'Enhance selected text directly in your editor. Keyboard shortcuts for all 5 modes.', note: 'Install via Extensions → Install from VSIX' },
-                  { icon: '⌨️', name: 'CLI Tool (Antigravity)', desc: 'Enhance prompts from any terminal. Pipe input, clipboard output, all 5 modes.', note: 'Set GEMINI_API_KEY env var to use' },
+                  {
+                    icon: '🧩', name: 'Chrome Extension',
+                    desc: 'Works on ChatGPT, Claude, Gemini & any website. Floating ✨ button on AI chat inputs.',
+                    steps: ['Download zip from GitHub Releases', 'chrome://extensions → Developer Mode → Load Unpacked', 'Enter invite code + API key in extension'],
+                    href: 'https://github.com/yokesh-kumar-M/PromptEnhancer/releases',
+                  },
+                  {
+                    icon: '💻', name: 'VS Code Extension',
+                    desc: 'Enhance selected text inside your editor. Ctrl+Shift+E to enhance, Ctrl+Shift+K for code prompts.',
+                    steps: ['Download .vsix from GitHub Releases', 'VS Code → Extensions → ⋯ → Install from VSIX', 'Run "Set Gemini API Key" command'],
+                    href: 'https://github.com/yokesh-kumar-M/PromptEnhancer/releases',
+                  },
+                  {
+                    icon: '⌨️', name: 'CLI (Antigravity)',
+                    desc: 'Enhance from any terminal. Pipe input, clipboard output, all 5 modes via pe "prompt".',
+                    steps: ['Download CLI zip from GitHub Releases', 'Set GROQ_API_KEY=gsk_... or GEMINI_API_KEY=AIza...', 'python enhance.py "your prompt"'],
+                    href: 'https://github.com/yokesh-kumar-M/PromptEnhancer/releases',
+                  },
                 ].map(p => (
-                  <div key={p.name} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
-                    <div style={{ fontSize: 28, marginBottom: 12 }}>{p.icon}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{p.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 10 }}>{p.desc}</div>
-                    <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-3)', background: 'rgba(255,255,255,0.04)', padding: '3px 8px', borderRadius: 5, display: 'inline-block' }}>
-                      Download from GitHub Releases
+                  <div key={p.name} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ fontSize: 26, marginBottom: 10 }}>{p.icon}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{p.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5, marginBottom: 12, flex: 1 }}>{p.desc}</div>
+                    <div style={{ marginBottom: 12 }}>
+                      {p.steps.map((step, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 5 }}>
+                          <span style={{ width: 16, height: 16, flexShrink: 0, background: 'rgba(124,58,237,0.2)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: 'var(--violet-light)', marginTop: 1 }}>{i + 1}</span>
+                          <span style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.4 }}>{step}</span>
+                        </div>
+                      ))}
                     </div>
-                    <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)' }}>{p.note}</div>
+                    <a href={p.href} target="_blank" rel="noreferrer" style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 12px',
+                      fontSize: 11, fontWeight: 600, background: 'rgba(124,58,237,0.12)',
+                      color: 'var(--violet-light)', border: '1px solid rgba(124,58,237,0.25)',
+                      borderRadius: 6,
+                    }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>
+                      Download
+                    </a>
                   </div>
                 ))}
               </div>
 
-              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '20px 0' }} />
-              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-2)' }}>Backend API Endpoint</div>
-                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--violet-light)', background: 'rgba(124,58,237,0.08)', padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.2)' }}>
-                  {data?.backend_url || 'https://promptenhancer.onrender.com'}
+              <div style={{ background: 'rgba(124,58,237,0.04)', border: '1px solid rgba(124,58,237,0.12)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--violet-light)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Share With Users — Chrome Extension Quick Setup
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-3)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+                  {[
+                    { n: '1', t: 'Download & Install', d: 'GitHub Releases → unzip → chrome://extensions → Load Unpacked' },
+                    { n: '2', t: 'Enter Invite Code', d: 'Click extension icon → paste invite code → Validate' },
+                    { n: '3', t: 'Set Backend URL', d: `Settings tab → Backend URL → ${data?.backend_url || 'https://promptenhancer-backend.onrender.com'}` },
+                    { n: '4', t: 'Add API Key', d: 'Settings tab → choose Groq or Gemini → paste free API key → click Verify Key' },
+                    { n: '5', t: 'Enhance!', d: 'Open ChatGPT/Claude/Gemini → click ✨ on any text input' },
+                  ].map(step => (
+                    <div key={step.n} style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ width: 22, height: 22, flexShrink: 0, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff' }}>{step.n}</div>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)', marginBottom: 2 }}>{step.t}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-3)', lineHeight: 1.4 }}>{step.d}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)', borderRadius: 10, padding: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--text-2)' }}>Backend API Endpoint (paste into extension Settings)</div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--violet-light)', background: 'rgba(124,58,237,0.08)', padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(124,58,237,0.2)', marginBottom: 10 }}>
+                  {data?.backend_url || 'https://promptenhancer-backend.onrender.com'}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-3)' }}>
                   <span>POST /api/enhance/</span><span>·</span>
                   <span>POST /api/validate-invite/</span><span>·</span>
                   <span>POST /api/log-usage/</span>

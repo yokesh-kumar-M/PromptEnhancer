@@ -66,6 +66,8 @@ export const api = {
   adminGenerateInvite: (data: { label: string; email: string; max_uses: number }) =>
     req('/api/admin/invite/generate/', { method: 'POST', body: JSON.stringify(data) }),
 
+  adminInvites: () => req('/api/admin/invites/'),
+
   validateInvite: (code: string) =>
     req('/api/validate-invite/', { method: 'POST', body: JSON.stringify({ code }) }),
 }

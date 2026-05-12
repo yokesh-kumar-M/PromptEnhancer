@@ -1,98 +1,126 @@
 # PromptEnhancer Pro
 
-AI-powered prompt enhancement tool. Invite-only, BYOK (Bring Your Own API Key). Better than PromptSloth — no subscription needed.
+> AI-powered prompt enhancement — invite-only, BYOK, multi-platform.
 
-## What it does
-
-Transforms vague prompts into powerful AI instructions with one click. Works on ChatGPT, Claude, Gemini, and any website.
-
-**5 modes:** Enhance · Professional · Shorten · Code · Creative
-
-## Platforms
-
-| Tool | Description |
-|------|-------------|
-| Chrome Extension | Floating ✨ button on any AI chat |
-| VS Code Extension | `Ctrl+Shift+E` to enhance prompts while coding |
-| Python CLI | `pe "your prompt"` in any terminal |
-| Web Dashboard | Usage analytics at your backend URL |
-
-## Stack
-
-- **Backend:** Django 5, DRF, PostgreSQL (Railway/Render)
-- **Extension:** React + TypeScript + Vite + CRXJS
-- **AI:** Groq (Llama 3.3 70B) or Google Gemini — user's own API key
-
-## Production Setup
-
-### 1. Deploy Backend to Railway
-
-Set these environment variables in Railway:
+## Repository Structure
 
 ```
-SECRET_KEY=<generate a strong key>
-DEBUG=False
-ALLOWED_HOSTS=*
-DATABASE_URL=<auto-set by Railway Postgres>
-GEMINI_API_KEY=<your key, optional — for VS Code/CLI>
-BACKEND_URL=https://your-app.railway.app
-ADMIN_EMAIL=yokeshkumar1704@gmail.com
-EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USE_TLS=True
-EMAIL_HOST_USER=your-gmail@gmail.com
-EMAIL_HOST_PASSWORD=<Gmail App Password>
-DEFAULT_FROM_EMAIL=PromptEnhancer Pro <noreply@your-domain.com>
+PromptEnhancer/
+├── backend/              # Django 5 REST API (Render / Railway)
+│   ├── prompt_engine/    # Core app — auth, enhancement, admin
+│   ├── prompt_enhancer_backend/  # Django project settings
+│   ├── manage.py
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── render.yaml
+│   └── railway.toml
+│
+├── frontend/             # React + Vite + TypeScript web app (Vercel)
+│   ├── src/
+│   │   ├── pages/        # Landing, Login, Register, Dashboard, RequestAccess
+│   │   ├── lib/api.ts    # Centralized API client
+│   │   ├── App.tsx
+│   │   └── index.css
+│   ├── index.html
+│   ├── package.json
+│   └── vercel.json
+│
+├── extension/            # Chrome extension (React + Vite + CRXJS)
+│
+├── vscode-extension/     # VS Code extension (TypeScript)
+│
+├── cli/                  # Python CLI tool
+│   ├── enhance.py
+│   ├── shell_integration.sh
+│   └── shell_integration.ps1
+│
+├── .github/workflows/
+│   ├── deploy.yml        # Full CI/CD — backend, frontend, extensions, release
+│   └── keepalive.yml     # Render free-tier keep-alive ping
+│
+├── docker-compose.yml    # Local full-stack dev environment
+└── render.yaml           # Render deployment config
 ```
 
-The `create_admin` command runs automatically on deploy and creates:
-- **Username:** `yokesh` | **Password:** `ThisisaworkingModel` | **Email:** `yokeshkumar1704@gmail.com`
+## What It Does
 
-### 2. Build & Load Chrome Extension
+Transforms vague prompts into powerful AI instructions with one click.
 
-```bash
-cd extension-react
-npm install
-npm run build     # outputs to dist/
-```
+**5 enhancement modes:** Enhance · Professional · Shorten · Code · Creative
 
-Load `extension-react/dist/` as an unpacked extension in Chrome (`chrome://extensions` → Developer mode → Load unpacked).
+**Works on:** ChatGPT, Claude, Gemini, Perplexity, Copilot, Mistral, Poe — any website.
 
-### 3. Configure Extension
-
-1. Enter your invite code (create one in Django admin → Invite Codes)
-2. Go to Settings tab → choose Groq or Gemini → paste your API key
-   - **Groq (free, fast):** https://console.groq.com/keys
-   - **Gemini (free):** https://aistudio.google.com/apikey
-
-### 4. Admin Panel
-
-Visit `/admin/` — log in as `yokesh` / `ThisisaworkingModel`
-
-**Admin actions:**
-- **Access Requests** → Approve and auto-email invite codes
-- **Invite Codes** → Send invite emails manually
-- **Enhancement Logs** → View all usage data
-
-## User Flow
-
-1. User visits your web app → clicks "Request Access" → submits email
-2. You approve in admin → invite code is emailed automatically
-3. User registers at `/register/?code=INVITE_CODE`
-4. User installs extension, enters invite code + API key
-5. Click ✨ on any AI chat to enhance prompts
+**Zero subscription:** Bring your own free [Groq](https://console.groq.com/keys) or [Gemini](https://aistudio.google.com/apikey) API key.
 
 ## Local Development
 
+### Backend
+
 ```bash
-# Backend
+cd backend
+python -m venv venv && venv\Scripts\activate   # Windows
 pip install -r requirements.txt
-cp .env.example .env   # fill in values
+cp .env.example .env          # fill in values
 python manage.py migrate
 python manage.py create_admin
 python manage.py runserver
-
-# Extension
-cd extension-react && npm install && npm run dev
+# → http://localhost:8000
 ```
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+# create .env with: VITE_BACKEND_URL=http://localhost:8000
+npm run dev
+# → http://localhost:5173
+```
+
+### Chrome Extension
+
+```bash
+cd extension
+npm install
+npm run dev    # hot-reload dev build
+# or
+npm run build  # production build → load extension/dist/ in Chrome
+```
+
+### Full Stack (Docker)
+
+```bash
+docker compose up --build
+# backend → http://localhost:8000
+# frontend → http://localhost:5173
+```
+
+## Production Deployment
+
+### Backend → Render
+
+The `render.yaml` at the root auto-configures the backend service with `rootDir: backend`.
+
+Required secrets in Render dashboard:
+- `GEMINI_API_KEY`
+- `EMAIL_HOST_USER`
+- `EMAIL_HOST_PASSWORD`
+
+### Frontend → Vercel
+
+Add these GitHub Secrets in the repo settings:
+- `VERCEL_TOKEN` — from [vercel.com/account/tokens](https://vercel.com/account/tokens)
+- `VERCEL_ORG_ID` — `team_A2J6Pbn1fUKAi8NhIxarjxtO`
+
+Every push to `main` triggers auto-deploy to Vercel.
+
+## Admin Access
+
+Visit `<backend-url>/admin/` — default credentials created by `create_admin`:
+- **Username:** `yokesh`
+- **Password:** `ThisisaworkingModel`
+
+Admin capabilities:
+- Approve access requests → auto-email invite codes
+- Generate & manage invite codes
+- View all enhancement logs and usage stats

@@ -1,4 +1,4 @@
-# Python
+# ─── Python / Django ────────────────────────────────────────
 venv/
 .venv/
 env/
@@ -7,35 +7,38 @@ __pycache__/
 *.pyo
 *.pyd
 *.egg-info/
-dist/
-build/
-.eggs/
 *.egg
 pip-wheel-metadata/
+backend/db.sqlite3
+backend/staticfiles/
+backend/media/
 
-# Django
-db.sqlite3
-*.sqlite3
+# ─── Environment ────────────────────────────────────────────
 .env
 .env.*
 !.env.example
-staticfiles/
-media/
+!backend/.env.example
+!frontend/.env.example
 
-# Node / Extensions
+# ─── Node / Frontend / Extensions ───────────────────────────
 node_modules/
-extension-react/node_modules/
-vscode-extension/node_modules/
 frontend/node_modules/
-extension-react/dist/
-vscode-extension/out/
 frontend/dist/
-extension-react/.env.development
-extension-react/.env.production
+extension/node_modules/
+extension/dist/
+vscode-extension/node_modules/
+vscode-extension/out/
+extension/.env.development
+extension/.env.production
+
+# ─── Build Artifacts ─────────────────────────────────────────
+dist/
+build/
 *.vsix
+*.zip
 pnpm-lock.yaml
 
-# IDE
+# ─── IDE / OS ────────────────────────────────────────────────
 .idea/
 .vscode/
 *.swp
@@ -43,16 +46,10 @@ pnpm-lock.yaml
 .DS_Store
 Thumbs.db
 
-# Build artifacts
-prompt-enhancer-chrome.zip
-prompt-enhancer-vscode.vsix
-prompt-enhancer-cli.zip
-*.zip
-
-# Vercel
+# ─── Deployment ──────────────────────────────────────────────
 .vercel/
 
-# Logs
+# ─── Logs ────────────────────────────────────────────────────
 *.log
 npm-debug.log*
 yarn-debug.log*
