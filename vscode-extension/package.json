@@ -4,11 +4,19 @@
   "description": "Enhance your AI prompts directly in VS Code using Gemini AI",
   "version": "1.0.0",
   "publisher": "promptenhancer",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yokesh-kumar-M/PromptEnhancer.git"
+  },
+  "license": "MIT",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other", "AI"],
-  "icon": "icon.png",
+  "categories": [
+    "Other",
+    "AI"
+  ],
+  "icon": "extension/icon.png",
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
@@ -67,11 +75,21 @@
         }
       ],
       "promptenhancer.submenu": [
-        { "command": "promptenhancer.enhance" },
-        { "command": "promptenhancer.professional" },
-        { "command": "promptenhancer.code" },
-        { "command": "promptenhancer.shorten" },
-        { "command": "promptenhancer.creative" }
+        {
+          "command": "promptenhancer.enhance"
+        },
+        {
+          "command": "promptenhancer.professional"
+        },
+        {
+          "command": "promptenhancer.code"
+        },
+        {
+          "command": "promptenhancer.shorten"
+        },
+        {
+          "command": "promptenhancer.creative"
+        }
       ]
     },
     "submenus": [
@@ -91,13 +109,21 @@
         "promptenhancer.model": {
           "type": "string",
           "default": "gemini-2.5-flash",
-          "enum": ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"],
+          "enum": [
+            "gemini-2.5-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro"
+          ],
           "description": "Gemini model to use for enhancement"
         },
         "promptenhancer.insertMode": {
           "type": "string",
           "default": "replace",
-          "enum": ["replace", "append", "clipboard"],
+          "enum": [
+            "replace",
+            "append",
+            "clipboard"
+          ],
           "enumDescriptions": [
             "Replace the selected text with the enhanced version",
             "Append the enhanced version below the selection",
