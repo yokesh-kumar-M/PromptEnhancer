@@ -689,8 +689,21 @@ def api_login(request):
     if not user or not user.is_active:
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
+    # Auto-promote the admin email to staff/superuser on every login (belt and suspenders)
+    admin_email = getattr(settings, 'ADMIN_EMAIL', 'yokeshkumar1704@gmail.com')
+    if user.email.lower() == admin_email.lower():
+        needs_save = []
+        if not user.is_staff:
+            user.is_staff = True
+            needs_save.append('is_staff')
+        if not user.is_superuser:
+            user.is_superuser = True
+            needs_save.append('is_superuser')
+        if needs_save:
+            user.save(update_fields=needs_save)
+
     if not user.is_staff:
-        return JsonResponse({'error': 'Admin access only. Contact Yokesh if you need access.'}, status=403)
+        return JsonResponse({'error': 'Admin access only. Contact the admin if you need access.'}, status=403)
 
     from rest_framework.authtoken.models import Token
     token, _ = Token.objects.get_or_create(user=user)

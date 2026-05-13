@@ -1,10 +1,16 @@
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 
 from prompt_engine import views as web_views
 
+FRONTEND_DASHBOARD = 'https://promptenhancer-frontend.vercel.app/dashboard'
+
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    # Redirect the Django admin URL to the React frontend dashboard
+    path('admin/', RedirectView.as_view(url=FRONTEND_DASHBOARD, permanent=False)),
+    # Django admin is accessible at /_admin/ if ever needed for emergencies
+    path('_admin/', admin.site.urls),
     path('api/', include('prompt_engine.urls')),
 
     # Admin API — dashboard tools

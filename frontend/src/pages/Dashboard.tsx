@@ -293,16 +293,6 @@ export default function Dashboard() {
               )}
             </button>
           ))}
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em', padding: '8px 8px 4px', marginTop: 4 }}>Links</div>
-          <a href={`${data?.backend_url ?? ''}/admin/`} target="_blank" rel="noreferrer" style={{
-            display: 'flex', alignItems: 'center', gap: 9, padding: '9px 10px',
-            borderRadius: 8, fontSize: 13, fontWeight: 500, color: 'var(--text-2)',
-          }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ opacity: 0.7 }}>
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-            Django Admin
-          </a>
           <div style={{ flex: 1 }} />
           <button
             onClick={handleLogout}
