@@ -146,10 +146,10 @@ CORS_ALLOW_CREDENTIALS = True
 
 GEMINI_API_KEY = config('GEMINI_API_KEY', default='')
 
-# Auth redirects
-LOGIN_URL = '/login/'
-LOGIN_REDIRECT_URL = '/dashboard/'
-LOGOUT_REDIRECT_URL = '/'
+# Auth redirects — Django backend has no UI; everything bounces to the React frontend on Vercel
+LOGIN_URL = config('FRONTEND_URL', default='https://promptenhancer-frontend.vercel.app') + '/login'
+LOGIN_REDIRECT_URL = config('FRONTEND_URL', default='https://promptenhancer-frontend.vercel.app') + '/dashboard'
+LOGOUT_REDIRECT_URL = config('FRONTEND_URL', default='https://promptenhancer-frontend.vercel.app')
 
 # App identity
 BACKEND_URL = config('BACKEND_URL', default='http://localhost:8000')

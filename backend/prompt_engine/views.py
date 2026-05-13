@@ -1,21 +1,19 @@
 import json
 import secrets
 from django.conf import settings
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.db import connection
-from django.db.models import Count, Q
+from django.db.models import Count
 from django.http import JsonResponse
-from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from decouple import config
 from rest_framework import viewsets
 
-from .models import AccessRequest, EnhancementLog, InviteCode, PromptTemplate, UserProfile
+from .models import AccessRequest, EnhancementLog, PromptTemplate, UserProfile
 from .serializers import PromptTemplateSerializer
 
 # ======================== SYSTEM PROMPTS ========================
@@ -98,34 +96,12 @@ def _resolve_request_user(request):
     return _get_user_from_token(request)
 
 
-# ======================== DECORATORS ========================
-
-
-def admin_required(view_func):
-    """Restricts view to staff/superusers only."""
-    decorated = user_passes_test(
-        lambda u: u.is_active and u.is_staff,
-        login_url='/login/'
-    )(view_func)
-    return login_required(decorated)
-
-
-# ======================== API HELPERS ========================
+# ======================== PROVIDER CALLS ========================
 
 
 class PromptTemplateViewSet(viewsets.ModelViewSet):
     queryset = PromptTemplate.objects.all()
     serializer_class = PromptTemplateSerializer
-
-
-def _find_invite(code: str):
-    """Returns InviteCode if active (for logging backwards compat)."""
-    if not code:
-        return None
-    try:
-        return InviteCode.objects.get(code=code, is_active=True)
-    except InviteCode.DoesNotExist:
-        return None
 
 
 def _call_gemini(text: str, action: str, api_key: str, model_name: str = '') -> str:
@@ -190,7 +166,7 @@ def _call_groq(text: str, action: str, api_key: str, model_name: str = '') -> st
 @csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
 def enhance_prompt(request):
-    """BYOK enhancement endpoint — no invite code required. Supply your own api_key."""
+    """BYOK enhancement endpoint — supply your own api_key in the body."""
     if request.method == 'OPTIONS':
         return JsonResponse({})
 
@@ -211,7 +187,7 @@ def enhance_prompt(request):
     if len(text) > 10000:
         return JsonResponse({'error': 'Text too long (max 10,000 chars)'}, status=400)
 
-    # BYOK: use user's key if provided, otherwise fall back to server Gemini key
+    # BYOK: use the user-supplied key if present, otherwise fall back to server Gemini key
     if user_api_key:
         api_key = user_api_key
     elif provider == 'gemini':
@@ -235,18 +211,8 @@ def enhance_prompt(request):
             result = _call_gemini(text, action, api_key, model)
             resolved_model = model or 'gemini-2.5-flash'
 
-        # Optional: track invite code for logging backwards compat
-        invite_code_str = request.headers.get('X-Invite-Code', '').strip()
-        invite = _find_invite(invite_code_str) if invite_code_str else None
-
-        if invite:
-            invite.total_uses += 1
-            invite.last_used_at = timezone.now()
-            invite.save(update_fields=['total_uses', 'last_used_at'])
-
         EnhancementLog.objects.create(
             user=user,
-            invite_code=invite,
             action=action,
             provider=provider,
             model_used=resolved_model,
@@ -272,24 +238,10 @@ def log_usage(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'logged': False, 'error': 'Invalid JSON'}, status=400)
 
-    # Try to resolve user from token
     user = _resolve_request_user(request)
-
-    # Also try invite code for backwards compat
-    invite_code_str = data.get('invite_code', '').strip()
-    invite = _find_invite(invite_code_str) if invite_code_str else None
-
-    if invite and not user:
-        try:
-            user = UserProfile.objects.get(invite_code=invite).user
-        except UserProfile.DoesNotExist:
-            pass
-        invite.last_used_at = timezone.now()
-        invite.save(update_fields=['last_used_at'])
 
     EnhancementLog.objects.create(
         user=user,
-        invite_code=invite,
         action=data.get('action', 'Enhance')[:50],
         provider=data.get('provider', 'gemini')[:20],
         model_used=data.get('model', '')[:100],
@@ -432,7 +384,6 @@ def admin_approve_request(request, pk):
     if access_req.status == AccessRequest.STATUS_APPROVED:
         return JsonResponse({'error': 'Already approved'}, status=400)
 
-    # If user already exists, just mark as approved
     existing_user = User.objects.filter(email=access_req.email).first()
     if existing_user:
         access_req.status = AccessRequest.STATUS_APPROVED
@@ -440,7 +391,6 @@ def admin_approve_request(request, pk):
         access_req.save()
         return JsonResponse({'success': True, 'message': f'Approved — account already exists for {access_req.email}'})
 
-    # Create user account with temp password
     temp_password = secrets.token_urlsafe(10)
     username = f"{access_req.email.split('@')[0]}_{secrets.token_hex(3)}"
     new_user = User.objects.create_user(
@@ -459,7 +409,6 @@ def admin_approve_request(request, pk):
     access_req.processed_at = timezone.now()
     access_req.save()
 
-    # Send welcome email with credentials
     frontend_url = getattr(settings, 'FRONTEND_URL', 'https://promptenhancer-frontend.vercel.app')
     backend_url = getattr(settings, 'BACKEND_URL', 'https://promptenhancer-backend.onrender.com')
     try:
@@ -477,10 +426,10 @@ def admin_approve_request(request, pk):
                 f"2. Open the extension → Settings tab\n"
                 f"3. Set Backend URL to: {backend_url}\n"
                 f"4. Add your free Groq or Gemini API key\n"
-                f"5. Click ✨ on any AI chat to enhance your prompts!\n\n"
+                f"5. Click on any AI chat to enhance your prompts!\n\n"
                 f"Free API keys:\n"
                 f"  Groq (ultra-fast, 14,400 req/day): https://console.groq.com/keys\n"
-                f"  Google Gemini (free):               https://aistudio.google.com/apikey\n\n"
+                f"  Google Gemini (free):              https://aistudio.google.com/apikey\n\n"
                 f"Welcome to PromptEnhancer Pro!\n"
                 f"— Yokesh"
             ),
@@ -519,156 +468,13 @@ def admin_reject_request(request, pk):
     return JsonResponse({'success': True, 'message': f'Rejected request from {access_req.email}'})
 
 
-# ======================== WEB VIEWS ========================
-
-
-def landing_view(request):
-    if request.user.is_authenticated and request.user.is_staff:
-        return redirect('dashboard')
-    return render(request, 'landing.html')
-
-
-def request_access_view(request):
-    if request.method == 'POST':
-        email = request.POST.get('email', '').strip().lower()
-        name = request.POST.get('name', '').strip()
-        reason = request.POST.get('reason', '').strip()
-
-        if not email:
-            return render(request, 'request_access.html', {'error': 'Email address is required.'})
-
-        if AccessRequest.objects.filter(email=email).exists():
-            return render(request, 'request_access.html', {
-                'submitted': True,
-                'message': "We already have your request! You'll receive an email once approved.",
-            })
-
-        AccessRequest.objects.create(email=email, name=name, reason=reason)
-
-        admin_email = getattr(settings, 'ADMIN_EMAIL', 'yokeshkumar1704@gmail.com')
-        try:
-            send_mail(
-                subject=f'[PromptEnhancer] New access request from {name or email}',
-                message=(
-                    f'Name: {name or "(not provided)"}\n'
-                    f'Email: {email}\n'
-                    f'Reason: {reason or "(not provided)"}\n\n'
-                    f'Approve in admin dashboard:\n'
-                    f'https://promptenhancer-frontend.vercel.app/dashboard'
-                ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[admin_email],
-                fail_silently=True,
-            )
-        except Exception:
-            pass
-
-        return render(request, 'request_access.html', {
-            'submitted': True,
-            'message': f"Request submitted! You'll receive login credentials at {email} once approved.",
-        })
-
-    return render(request, 'request_access.html')
-
-
-def login_view(request):
-    if request.user.is_authenticated:
-        return redirect('dashboard')
-
-    error = None
-    next_url = request.GET.get('next', '/dashboard/')
-
-    if request.method == 'POST':
-        email = request.POST.get('email', '').strip().lower()
-        password = request.POST.get('password', '')
-        next_url = request.POST.get('next', '/dashboard/')
-
-        user_obj = User.objects.filter(email=email).first()
-        user = authenticate(request, username=user_obj.username, password=password) if user_obj else None
-
-        if user:
-            login(request, user)
-            return redirect(next_url if next_url.startswith('/') else '/dashboard/')
-
-        error = 'Invalid email or password.'
-
-    return render(request, 'login.html', {'error': error, 'next': next_url})
-
-
-def logout_view(request):
-    logout(request)
-    return redirect('landing')
-
-
-def register_view(request):
-    """Registration is handled by admin approval. Redirect to request access."""
-    return redirect('request_access')
-
-
-@admin_required
-def dashboard_view(request):
-    profile, _ = UserProfile.objects.get_or_create(user=request.user)
-
-    now = timezone.now()
-    today = now.date()
-    week_ago = today - timezone.timedelta(days=7)
-    month_ago = today - timezone.timedelta(days=30)
-
-    total = EnhancementLog.objects.count()
-    today_count = EnhancementLog.objects.filter(created_at__date=today).count()
-    week_count = EnhancementLog.objects.filter(created_at__date__gte=week_ago).count()
-    month_count = EnhancementLog.objects.filter(created_at__date__gte=month_ago).count()
-    avg_per_day = round(month_count / 30, 1) if month_count else 0
-
-    by_action_qs = (
-        EnhancementLog.objects.values('action')
-        .annotate(count=Count('id'))
-        .order_by('-count')
-    )
-    by_action_data = [
-        {'name': r['action'], 'count': r['count'], 'pct': round(r['count'] / total * 100) if total else 0}
-        for r in by_action_qs
-    ]
-
-    by_provider_qs = EnhancementLog.objects.values('provider').annotate(count=Count('id'))
-    by_provider = {r['provider']: r['count'] for r in by_provider_qs}
-
-    top_domains = list(
-        EnhancementLog.objects.exclude(domain='')
-        .values('domain')
-        .annotate(count=Count('id'))
-        .order_by('-count')[:8]
-    )
-
-    recent = EnhancementLog.objects.select_related('invite_code', 'user').order_by('-created_at')[:20]
-
-    pending_requests = AccessRequest.objects.filter(status=AccessRequest.STATUS_PENDING).count()
-    total_requests = AccessRequest.objects.count()
-
-    gemini_key = config('GEMINI_API_KEY', default='')
-    api_key_configured = bool(gemini_key) and gemini_key != 'your-gemini-api-key-here'
-
-    return render(request, 'dashboard.html', {
-        'profile': profile,
-        'stats': {
-            'total': total,
-            'today': today_count,
-            'week': week_count,
-            'month': month_count,
-            'avg_per_day': avg_per_day,
-        },
-        'by_action': by_action_data,
-        'by_provider': by_provider,
-        'top_domains': top_domains,
-        'recent': recent,
-        'pending_requests': pending_requests,
-        'total_requests': total_requests,
-        'api_key_configured': api_key_configured,
-        'backend_url': getattr(settings, 'BACKEND_URL', 'http://localhost:8000'),
-    })
-
-
 # ======================== JSON AUTH API (for React frontend) ========================
+
+
+def _is_admin_email(email: str) -> bool:
+    admin_email = getattr(settings, 'ADMIN_EMAIL', 'yokeshkumar1704@gmail.com')
+    extras = {'yokeshkumar1704@gmail.com', 'sudharsanthirupatti@gmail.com'}
+    return email.lower() == admin_email.lower() or email.lower() in extras
 
 
 @csrf_exempt
@@ -689,9 +495,8 @@ def api_login(request):
     if not user or not user.is_active:
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
-    # Auto-promote the admin email to staff/superuser on every login (belt and suspenders)
-    admin_email = getattr(settings, 'ADMIN_EMAIL', 'yokeshkumar1704@gmail.com')
-    if user.email.lower() == admin_email.lower():
+    # Auto-promote admin emails to staff/superuser on every login
+    if _is_admin_email(user.email):
         needs_save = []
         if not user.is_staff:
             user.is_staff = True
@@ -715,6 +520,7 @@ def api_login(request):
             'name': user.first_name or user.username,
             'email': user.email,
             'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
         }
     })
 
@@ -785,7 +591,13 @@ def api_me(request):
     if not user:
         return JsonResponse({'error': 'Unauthorized'}, status=401)
     return JsonResponse({
-        'user': {'id': user.id, 'name': user.first_name or user.username, 'email': user.email, 'is_staff': user.is_staff}
+        'user': {
+            'id': user.id,
+            'name': user.first_name or user.username,
+            'email': user.email,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+        }
     })
 
 
@@ -843,7 +655,7 @@ def api_dashboard_stats(request):
     api_key_configured = bool(gemini_key) and gemini_key != 'your-gemini-api-key-here'
 
     return JsonResponse({
-        'user': {'name': user.first_name or user.username, 'email': user.email},
+        'user': {'name': user.first_name or user.username, 'email': user.email, 'is_staff': user.is_staff, 'is_superuser': user.is_superuser},
         'stats': {'total': total, 'today': today_count, 'week': week_count, 'month': month_count, 'avg_per_day': avg_per_day},
         'by_action': by_action_data,
         'by_provider': by_provider,

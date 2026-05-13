@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from django.utils import timezone
 
-from .models import AccessRequest, EnhancementLog, InviteCode, PromptTemplate, UserProfile
+from .models import AccessRequest, EnhancementLog, PromptTemplate, UserProfile
 
 admin.site.site_header = "PromptEnhancer Pro — Admin Panel"
 admin.site.site_title = "PromptEnhancer Admin"
@@ -101,14 +101,6 @@ class AccessRequestAdmin(admin.ModelAdmin):
         self.message_user(request, f'Rejected {queryset.count()} request(s).')
 
     reject_requests.short_description = 'Reject selected requests'
-
-
-@admin.register(InviteCode)
-class InviteCodeAdmin(admin.ModelAdmin):
-    list_display = ['code', 'label', 'email', 'is_active', 'total_uses', 'created_at']
-    list_filter = ['is_active']
-    readonly_fields = ['created_at', 'last_used_at', 'total_uses']
-    search_fields = ['code', 'label', 'email']
 
 
 @admin.register(UserProfile)

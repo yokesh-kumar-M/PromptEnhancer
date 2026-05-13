@@ -1,19 +1,22 @@
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
+from decouple import config
 
 from prompt_engine import views as web_views
 
-FRONTEND_DASHBOARD = 'https://promptenhancer-frontend.vercel.app/dashboard'
+FRONTEND_URL = config('FRONTEND_URL', default='https://promptenhancer-frontend.vercel.app')
 
 urlpatterns = [
-    # Redirect the Django admin URL to the React frontend dashboard
-    path('admin/', RedirectView.as_view(url=FRONTEND_DASHBOARD, permanent=False)),
-    # Django admin is accessible at /_admin/ if ever needed for emergencies
+    # Django admin lives at /_admin/ for emergency DB access
     path('_admin/', admin.site.urls),
+    # Old /admin/ URL → React dashboard
+    path('admin/', RedirectView.as_view(url=f'{FRONTEND_URL}/dashboard', permanent=False)),
+
+    # All public API endpoints
     path('api/', include('prompt_engine.urls')),
 
-    # Admin API — dashboard tools
+    # Admin API — used by the React dashboard
     path('api/admin/enhance/', web_views.admin_enhance_api, name='admin_enhance'),
     path('api/admin/access-requests/', web_views.admin_access_requests, name='admin_access_requests'),
     path('api/admin/access-requests/<int:pk>/approve/', web_views.admin_approve_request, name='admin_approve_request'),
@@ -27,11 +30,11 @@ urlpatterns = [
     path('api/dashboard/stats/', web_views.api_dashboard_stats, name='api_dashboard_stats'),
     path('api/health/', web_views.health_check, name='health_check'),
 
-    # Django template web views (kept for /admin/ login flow)
-    path('', web_views.landing_view, name='landing'),
-    path('request-access/', web_views.request_access_view, name='request_access'),
-    path('login/', web_views.login_view, name='login'),
-    path('logout/', web_views.logout_view, name='logout'),
-    path('register/', web_views.register_view, name='register'),
-    path('dashboard/', web_views.dashboard_view, name='dashboard'),
+    # Every UI path → React frontend (Vercel)
+    path('', RedirectView.as_view(url=FRONTEND_URL, permanent=False)),
+    path('login/', RedirectView.as_view(url=f'{FRONTEND_URL}/login', permanent=False)),
+    path('logout/', RedirectView.as_view(url=FRONTEND_URL, permanent=False)),
+    path('register/', RedirectView.as_view(url=f'{FRONTEND_URL}/request-access', permanent=False)),
+    path('request-access/', RedirectView.as_view(url=f'{FRONTEND_URL}/request-access', permanent=False)),
+    path('dashboard/', RedirectView.as_view(url=f'{FRONTEND_URL}/dashboard', permanent=False)),
 ]

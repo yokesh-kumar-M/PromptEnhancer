@@ -1,6 +1,6 @@
 # PromptEnhancer Pro
 
-> AI-powered prompt enhancement — invite-only, BYOK, multi-platform.
+> AI-powered prompt enhancement — admin-approved access, BYOK, multi-platform.
 
 ## Repository Structure
 
@@ -116,11 +116,17 @@ Every push to `main` triggers auto-deploy to Vercel.
 
 ## Admin Access
 
-Visit `<backend-url>/admin/` — default credentials created by `create_admin`:
+Sign in at `<frontend-url>/login` to reach the React admin dashboard.
+
+The Django backend has no UI of its own — every web path (`/`, `/login/`, `/dashboard/`, `/admin/`) redirects to the Vercel frontend.
+For low-level DB access, the Django admin lives at `<backend-url>/_admin/` (rarely needed).
+
+Default admin credentials, created by `python manage.py create_admin` (idempotent, runs on deploy):
 - **Username:** `yokesh`
 - **Password:** `ThisisaworkingModel`
+- **Email:** `yokeshkumar1704@gmail.com` (auto-promoted to staff/superuser on login)
 
-Admin capabilities:
-- Approve access requests → auto-email invite codes
-- Generate & manage invite codes
-- View all enhancement logs and usage stats
+Admin capabilities (from the React dashboard):
+- Approve / reject access requests — auto-creates an account and emails the user their credentials
+- View enhancement stats, usage by mode, by provider, top domains
+- Quick Enhance tool (Ctrl+Enter)

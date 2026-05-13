@@ -157,7 +157,7 @@ def enhance_with_gemini(text: str, action: str, api_key: str) -> str:
     return response.text.strip()
 
 
-def enhance_with_backend(text: str, action: str, invite_code: str, backend_url: str,
+def enhance_with_backend(text: str, action: str, backend_url: str,
                          api_key: str = '', provider: str = 'gemini') -> str:
     import urllib.request
     import json
@@ -171,10 +171,7 @@ def enhance_with_backend(text: str, action: str, invite_code: str, backend_url: 
     req = urllib.request.Request(
         f"{backend_url.rstrip('/')}/api/enhance/",
         data=payload,
-        headers={
-            'Content-Type': 'application/json',
-            'X-Invite-Code': invite_code,
-        },
+        headers={'Content-Type': 'application/json'},
         method='POST',
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -217,9 +214,8 @@ def main() -> None:
     parser.add_argument('--quiet', '-q', action='store_true', help='Only output the enhanced text')
     parser.add_argument(
         '--backend', '-b',
-        help='Use backend URL instead of direct API (requires --invite-code)',
+        help='Use backend URL instead of calling the AI provider directly (BYOK — uses your local API key)',
     )
-    parser.add_argument('--invite-code', '-i', help='Invite code for backend API')
     args = parser.parse_args()
 
     # Get input text
@@ -259,15 +255,12 @@ def main() -> None:
 
     try:
         if args.backend:
-            invite = args.invite_code or os.environ.get('PE_INVITE_CODE', '')
-            if not invite:
-                print(
-                    'ERROR: --backend requires --invite-code or PE_INVITE_CODE env var.',
-                    file=sys.stderr,
-                )
-                sys.exit(1)
             api_key = groq_key if provider == 'groq' else gemini_key
-            enhanced = enhance_with_backend(text, args.action, invite, args.backend, api_key, provider)
+            if not api_key:
+                env = 'GROQ_API_KEY' if provider == 'groq' else 'GEMINI_API_KEY'
+                print(f'ERROR: {env} environment variable not set.', file=sys.stderr)
+                sys.exit(1)
+            enhanced = enhance_with_backend(text, args.action, args.backend, api_key, provider)
         elif provider == 'groq':
             if not groq_key:
                 print(
