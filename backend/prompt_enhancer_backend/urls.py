@@ -7,15 +7,15 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('prompt_engine.urls')),
 
-    # Admin API (dashboard tools)
+    # Admin API — dashboard tools
     path('api/admin/enhance/', web_views.admin_enhance_api, name='admin_enhance'),
-    path('api/admin/invite/generate/', web_views.admin_generate_invite, name='admin_generate_invite'),
-    path('api/admin/invites/', web_views.admin_invites_data, name='admin_invites'),
+    path('api/admin/access-requests/', web_views.admin_access_requests, name='admin_access_requests'),
+    path('api/admin/access-requests/<int:pk>/approve/', web_views.admin_approve_request, name='admin_approve_request'),
+    path('api/admin/access-requests/<int:pk>/reject/', web_views.admin_reject_request, name='admin_reject_request'),
 
     # JSON Auth API (for React frontend)
     path('api/auth/login/', web_views.api_login, name='api_login'),
     path('api/auth/logout/', web_views.api_logout, name='api_logout'),
-    path('api/auth/register/', web_views.api_register, name='api_register'),
     path('api/auth/request-access/', web_views.api_request_access, name='api_request_access'),
     path('api/auth/me/', web_views.api_me, name='api_me'),
     path('api/dashboard/stats/', web_views.api_dashboard_stats, name='api_dashboard_stats'),

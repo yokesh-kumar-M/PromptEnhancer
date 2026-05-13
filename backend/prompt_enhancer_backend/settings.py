@@ -153,6 +153,7 @@ LOGOUT_REDIRECT_URL = '/'
 
 # App identity
 BACKEND_URL = config('BACKEND_URL', default='http://localhost:8000')
+FRONTEND_URL = config('FRONTEND_URL', default='https://promptenhancer-frontend.vercel.app')
 ADMIN_EMAIL = config('ADMIN_EMAIL', default='yokeshkumar1704@gmail.com')
 
 # Email — defaults to console (prints to terminal in dev); switch to SMTP in production

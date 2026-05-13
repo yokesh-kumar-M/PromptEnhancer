@@ -118,21 +118,8 @@ class PromptTemplateViewSet(viewsets.ModelViewSet):
     serializer_class = PromptTemplateSerializer
 
 
-def _resolve_invite(code: str):
-    """Returns InviteCode if valid and active, respects max_uses gate."""
-    if not code:
-        return None
-    try:
-        invite = InviteCode.objects.get(code=code, is_active=True)
-        if invite.max_uses > 0 and invite.total_uses >= invite.max_uses:
-            return None
-        return invite
-    except InviteCode.DoesNotExist:
-        return None
-
-
 def _find_invite(code: str):
-    """Returns InviteCode if active, without max_uses check (for logging)."""
+    """Returns InviteCode if active (for logging backwards compat)."""
     if not code:
         return None
     try:
@@ -202,36 +189,12 @@ def _call_groq(text: str, action: str, api_key: str, model_name: str = '') -> st
 
 @csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
-def validate_invite(request):
-    if request.method == 'OPTIONS':
-        return JsonResponse({})
-    try:
-        data = json.loads(request.body)
-        code = data.get('code', '').strip()
-    except (json.JSONDecodeError, ValueError):
-        return JsonResponse({'valid': False, 'message': 'Invalid request body'}, status=400)
-
-    invite = _resolve_invite(code)
-    if invite:
-        return JsonResponse({
-            'valid': True,
-            'message': 'Access granted',
-            'label': invite.label or invite.email or '',
-        })
-    return JsonResponse({'valid': False, 'message': 'Invalid or expired invite code'})
-
-
-@csrf_exempt
-@require_http_methods(['POST', 'OPTIONS'])
 def enhance_prompt(request):
-    """BYOK enhancement endpoint — accepts user's own api_key + provider in the request body."""
+    """BYOK enhancement endpoint — no invite code required. Supply your own api_key."""
     if request.method == 'OPTIONS':
         return JsonResponse({})
 
-    invite_code = request.headers.get('X-Invite-Code', '').strip()
-    invite = _resolve_invite(invite_code)
-    if not invite:
-        return JsonResponse({'error': 'Invalid or missing invite code'}, status=401)
+    user = _resolve_request_user(request)
 
     try:
         data = json.loads(request.body)
@@ -246,7 +209,7 @@ def enhance_prompt(request):
     if not text:
         return JsonResponse({'error': 'No text provided'}, status=400)
     if len(text) > 10000:
-        return JsonResponse({'error': 'Text too long (max 10 000 chars)'}, status=400)
+        return JsonResponse({'error': 'Text too long (max 10,000 chars)'}, status=400)
 
     # BYOK: use user's key if provided, otherwise fall back to server Gemini key
     if user_api_key:
@@ -272,11 +235,17 @@ def enhance_prompt(request):
             result = _call_gemini(text, action, api_key, model)
             resolved_model = model or 'gemini-2.5-flash'
 
-        invite.total_uses += 1
-        invite.last_used_at = timezone.now()
-        invite.save(update_fields=['total_uses', 'last_used_at'])
+        # Optional: track invite code for logging backwards compat
+        invite_code_str = request.headers.get('X-Invite-Code', '').strip()
+        invite = _find_invite(invite_code_str) if invite_code_str else None
+
+        if invite:
+            invite.total_uses += 1
+            invite.last_used_at = timezone.now()
+            invite.save(update_fields=['total_uses', 'last_used_at'])
 
         EnhancementLog.objects.create(
+            user=user,
             invite_code=invite,
             action=action,
             provider=provider,
@@ -303,11 +272,14 @@ def log_usage(request):
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'logged': False, 'error': 'Invalid JSON'}, status=400)
 
-    invite_code_str = data.get('invite_code', '').strip()
-    invite = _find_invite(invite_code_str)
+    # Try to resolve user from token
+    user = _resolve_request_user(request)
 
-    user = None
-    if invite:
+    # Also try invite code for backwards compat
+    invite_code_str = data.get('invite_code', '').strip()
+    invite = _find_invite(invite_code_str) if invite_code_str else None
+
+    if invite and not user:
         try:
             user = UserProfile.objects.get(invite_code=invite).user
         except UserProfile.DoesNotExist:
@@ -340,7 +312,7 @@ def log_usage(request):
 @csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
 def verify_key(request):
-    """Validate a user-supplied API key with a lightweight models-list check (no generation cost)."""
+    """Validate a user-supplied API key with a lightweight models-list check."""
     if request.method == 'OPTIONS':
         return JsonResponse({})
 
@@ -427,9 +399,25 @@ def admin_enhance_api(request):
 
 
 @csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def admin_access_requests(request):
+    """List all access requests. Staff only."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _resolve_request_user(request)
+    if not user or not user.is_staff:
+        return JsonResponse({'error': 'Admin access required'}, status=403)
+
+    requests_qs = AccessRequest.objects.order_by('-requested_at')[:100].values(
+        'id', 'email', 'name', 'reason', 'status', 'requested_at', 'processed_at'
+    )
+    return JsonResponse({'requests': list(requests_qs)}, json_dumps_params={'default': str})
+
+
+@csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
-def admin_generate_invite(request):
-    """Generate a new invite code. Staff only."""
+def admin_approve_request(request, pk):
+    """Approve an access request — creates user account and emails credentials. Staff only."""
     if request.method == 'OPTIONS':
         return JsonResponse({})
     user = _resolve_request_user(request)
@@ -437,42 +425,98 @@ def admin_generate_invite(request):
         return JsonResponse({'error': 'Admin access required'}, status=403)
 
     try:
-        data = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
-        data = {}
+        access_req = AccessRequest.objects.get(pk=pk)
+    except AccessRequest.DoesNotExist:
+        return JsonResponse({'error': 'Request not found'}, status=404)
 
-    invite = InviteCode.objects.create(
-        code=secrets.token_urlsafe(16),
-        label=data.get('label', '').strip()[:100],
-        email=data.get('email', '').strip()[:254],
-        max_uses=int(data.get('max_uses', 0)),
+    if access_req.status == AccessRequest.STATUS_APPROVED:
+        return JsonResponse({'error': 'Already approved'}, status=400)
+
+    # If user already exists, just mark as approved
+    existing_user = User.objects.filter(email=access_req.email).first()
+    if existing_user:
+        access_req.status = AccessRequest.STATUS_APPROVED
+        access_req.processed_at = timezone.now()
+        access_req.save()
+        return JsonResponse({'success': True, 'message': f'Approved — account already exists for {access_req.email}'})
+
+    # Create user account with temp password
+    temp_password = secrets.token_urlsafe(10)
+    username = f"{access_req.email.split('@')[0]}_{secrets.token_hex(3)}"
+    new_user = User.objects.create_user(
+        username=username,
+        email=access_req.email,
+        password=temp_password,
+        first_name=access_req.name or '',
+        is_active=True,
     )
+    UserProfile.objects.get_or_create(user=new_user)
+
+    from rest_framework.authtoken.models import Token
+    Token.objects.get_or_create(user=new_user)
+
+    access_req.status = AccessRequest.STATUS_APPROVED
+    access_req.processed_at = timezone.now()
+    access_req.save()
+
+    # Send welcome email with credentials
+    frontend_url = getattr(settings, 'FRONTEND_URL', 'https://promptenhancer-frontend.vercel.app')
+    backend_url = getattr(settings, 'BACKEND_URL', 'https://promptenhancer-backend.onrender.com')
+    try:
+        send_mail(
+            subject='PromptEnhancer Pro — Your Access Has Been Approved!',
+            message=(
+                f"Hi {access_req.name or 'there'},\n\n"
+                f"Great news! Your access to PromptEnhancer Pro has been approved.\n\n"
+                f"Your login credentials:\n"
+                f"  Email:    {access_req.email}\n"
+                f"  Password: {temp_password}\n\n"
+                f"Login at: {frontend_url}/login\n\n"
+                f"To use the Chrome Extension:\n"
+                f"1. Install from GitHub Releases: https://github.com/yokesh-kumar-M/PromptEnhancer/releases\n"
+                f"2. Open the extension → Settings tab\n"
+                f"3. Set Backend URL to: {backend_url}\n"
+                f"4. Add your free Groq or Gemini API key\n"
+                f"5. Click ✨ on any AI chat to enhance your prompts!\n\n"
+                f"Free API keys:\n"
+                f"  Groq (ultra-fast, 14,400 req/day): https://console.groq.com/keys\n"
+                f"  Google Gemini (free):               https://aistudio.google.com/apikey\n\n"
+                f"Welcome to PromptEnhancer Pro!\n"
+                f"— Yokesh"
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[access_req.email],
+            fail_silently=True,
+        )
+    except Exception:
+        pass
 
     return JsonResponse({
-        'code': invite.code,
-        'id': invite.id,
-        'label': invite.label,
-        'email': invite.email,
-        'max_uses': invite.max_uses,
-        'created_at': invite.created_at.isoformat(),
+        'success': True,
+        'message': f'Approved! Credentials emailed to {access_req.email}',
     })
 
 
 @csrf_exempt
-@require_http_methods(['GET', 'OPTIONS'])
-def admin_invites_data(request):
-    """Return invite codes as JSON for admin dashboard. Staff only."""
+@require_http_methods(['POST', 'OPTIONS'])
+def admin_reject_request(request, pk):
+    """Reject an access request. Staff only."""
     if request.method == 'OPTIONS':
         return JsonResponse({})
     user = _resolve_request_user(request)
     if not user or not user.is_staff:
         return JsonResponse({'error': 'Admin access required'}, status=403)
 
-    invites = InviteCode.objects.order_by('-created_at')[:50].values(
-        'id', 'code', 'label', 'email', 'is_active', 'total_uses',
-        'max_uses', 'created_at', 'last_used_at'
-    )
-    return JsonResponse({'invites': list(invites)}, json_dumps_params={'default': str})
+    try:
+        access_req = AccessRequest.objects.get(pk=pk)
+    except AccessRequest.DoesNotExist:
+        return JsonResponse({'error': 'Request not found'}, status=404)
+
+    access_req.status = AccessRequest.STATUS_REJECTED
+    access_req.processed_at = timezone.now()
+    access_req.save()
+
+    return JsonResponse({'success': True, 'message': f'Rejected request from {access_req.email}'})
 
 
 # ======================== WEB VIEWS ========================
@@ -496,12 +540,12 @@ def request_access_view(request):
         if AccessRequest.objects.filter(email=email).exists():
             return render(request, 'request_access.html', {
                 'submitted': True,
-                'message': "We already have your request! We'll email you an invite code once approved.",
+                'message': "We already have your request! You'll receive an email once approved.",
             })
 
         AccessRequest.objects.create(email=email, name=name, reason=reason)
 
-        admin_email = getattr(settings, 'ADMIN_EMAIL', 'dezprox25@gmail.com')
+        admin_email = getattr(settings, 'ADMIN_EMAIL', 'yokeshkumar1704@gmail.com')
         try:
             send_mail(
                 subject=f'[PromptEnhancer] New access request from {name or email}',
@@ -509,8 +553,8 @@ def request_access_view(request):
                     f'Name: {name or "(not provided)"}\n'
                     f'Email: {email}\n'
                     f'Reason: {reason or "(not provided)"}\n\n'
-                    f'Approve in admin panel:\n'
-                    f'{getattr(settings, "BACKEND_URL", "")}/admin/prompt_engine/accessrequest/'
+                    f'Approve in admin dashboard:\n'
+                    f'https://promptenhancer-frontend.vercel.app/dashboard'
                 ),
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[admin_email],
@@ -521,7 +565,7 @@ def request_access_view(request):
 
         return render(request, 'request_access.html', {
             'submitted': True,
-            'message': f"Request submitted! We'll send your invite code to {email} once approved.",
+            'message': f"Request submitted! You'll receive login credentials at {email} once approved.",
         })
 
     return render(request, 'request_access.html')
@@ -557,48 +601,8 @@ def logout_view(request):
 
 
 def register_view(request):
-    code = request.GET.get('code', '').strip()
-    prefill_invite = _resolve_invite(code)
-    error = None
-
-    if request.method == 'POST':
-        invite_code_str = request.POST.get('invite_code', '').strip()
-        name = request.POST.get('name', '').strip()
-        email = request.POST.get('email', '').strip().lower()
-        password = request.POST.get('password', '')
-
-        invite = _resolve_invite(invite_code_str)
-        if not invite:
-            error = 'Invalid or expired invite code. Check the link in your email.'
-        elif not all([name, email, password]):
-            error = 'All fields are required.'
-        elif len(password) < 8:
-            error = 'Password must be at least 8 characters long.'
-        elif User.objects.filter(email=email).exists():
-            error = 'An account with this email already exists. Try signing in.'
-        else:
-            username = f"{email.split('@')[0]}_{secrets.token_hex(3)}"
-            user = User.objects.create_user(
-                username=username,
-                email=email,
-                password=password,
-                first_name=name,
-            )
-            UserProfile.objects.create(user=user, invite_code=invite)
-            login(request, user)
-            return redirect('dashboard')
-
-        return render(request, 'register.html', {
-            'error': error,
-            'invite_code': invite_code_str,
-            'name': name,
-            'email': email,
-        })
-
-    return render(request, 'register.html', {
-        'invite_code': code,
-        'invite_valid': prefill_invite is not None,
-    })
+    """Registration is handled by admin approval. Redirect to request access."""
+    return redirect('request_access')
 
 
 @admin_required
@@ -638,8 +642,8 @@ def dashboard_view(request):
 
     recent = EnhancementLog.objects.select_related('invite_code', 'user').order_by('-created_at')[:20]
 
-    invite_count = InviteCode.objects.filter(is_active=True).count()
-    invite_total = InviteCode.objects.count()
+    pending_requests = AccessRequest.objects.filter(status=AccessRequest.STATUS_PENDING).count()
+    total_requests = AccessRequest.objects.count()
 
     gemini_key = config('GEMINI_API_KEY', default='')
     api_key_configured = bool(gemini_key) and gemini_key != 'your-gemini-api-key-here'
@@ -657,8 +661,8 @@ def dashboard_view(request):
         'by_provider': by_provider,
         'top_domains': top_domains,
         'recent': recent,
-        'invite_count': invite_count,
-        'invite_total': invite_total,
+        'pending_requests': pending_requests,
+        'total_requests': total_requests,
         'api_key_configured': api_key_configured,
         'backend_url': getattr(settings, 'BACKEND_URL', 'http://localhost:8000'),
     })
@@ -686,7 +690,7 @@ def api_login(request):
         return JsonResponse({'error': 'Invalid email or password'}, status=401)
 
     if not user.is_staff:
-        return JsonResponse({'error': 'This web login is for administrators only. Use the Chrome extension with your invite code.'}, status=403)
+        return JsonResponse({'error': 'Admin access only. Contact Yokesh if you need access.'}, status=403)
 
     from rest_framework.authtoken.models import Token
     token, _ = Token.objects.get_or_create(user=user)
@@ -716,43 +720,6 @@ def api_logout(request):
 
 @csrf_exempt
 @require_http_methods(['POST', 'OPTIONS'])
-def api_register(request):
-    if request.method == 'OPTIONS':
-        return JsonResponse({})
-    try:
-        data = json.loads(request.body)
-        invite_code_str = data.get('invite_code', '').strip()
-        name = data.get('name', '').strip()
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', '')
-    except (json.JSONDecodeError, ValueError):
-        return JsonResponse({'error': 'Invalid request'}, status=400)
-
-    invite = _resolve_invite(invite_code_str)
-    if not invite:
-        return JsonResponse({'error': 'Invalid or expired invite code'}, status=400)
-    if not all([name, email, password]):
-        return JsonResponse({'error': 'All fields are required'}, status=400)
-    if len(password) < 8:
-        return JsonResponse({'error': 'Password must be at least 8 characters'}, status=400)
-    if User.objects.filter(email=email).exists():
-        return JsonResponse({'error': 'An account with this email already exists'}, status=400)
-
-    username = f"{email.split('@')[0]}_{secrets.token_hex(3)}"
-    user = User.objects.create_user(username=username, email=email, password=password, first_name=name)
-    UserProfile.objects.create(user=user, invite_code=invite)
-
-    from rest_framework.authtoken.models import Token
-    token, _ = Token.objects.get_or_create(user=user)
-
-    return JsonResponse({
-        'token': token.key,
-        'user': {'id': user.id, 'name': user.first_name, 'email': user.email, 'is_staff': user.is_staff}
-    })
-
-
-@csrf_exempt
-@require_http_methods(['POST', 'OPTIONS'])
 def api_request_access(request):
     if request.method == 'OPTIONS':
         return JsonResponse({})
@@ -770,12 +737,12 @@ def api_request_access(request):
     if AccessRequest.objects.filter(email=email).exists():
         return JsonResponse({
             'already_submitted': True,
-            'message': "We already have your request! We'll email you once approved.",
+            'message': "We already have your request! You'll receive an email once the admin approves it.",
         })
 
     AccessRequest.objects.create(email=email, name=name, reason=reason)
 
-    admin_email = getattr(settings, 'ADMIN_EMAIL', 'dezprox25@gmail.com')
+    admin_email = getattr(settings, 'ADMIN_EMAIL', 'yokeshkumar1704@gmail.com')
     try:
         send_mail(
             subject=f'[PromptEnhancer] New access request from {name or email}',
@@ -783,8 +750,8 @@ def api_request_access(request):
                 f'Name: {name or "(not provided)"}\n'
                 f'Email: {email}\n'
                 f'Reason: {reason or "(not provided)"}\n\n'
-                f'Approve at:\n'
-                f'{getattr(settings, "BACKEND_URL", "")}/admin/prompt_engine/accessrequest/'
+                f'Review and approve at:\n'
+                f'https://promptenhancer-frontend.vercel.app/dashboard'
             ),
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[admin_email],
@@ -795,7 +762,7 @@ def api_request_access(request):
 
     return JsonResponse({
         'success': True,
-        'message': f"Request submitted! We'll send your invite code to {email} once approved.",
+        'message': f"Request submitted! You'll receive login credentials at {email} once approved.",
     })
 
 
@@ -856,6 +823,9 @@ def api_dashboard_stats(request):
         )
     )
 
+    pending_requests = AccessRequest.objects.filter(status=AccessRequest.STATUS_PENDING).count()
+    total_requests = AccessRequest.objects.count()
+
     gemini_key = config('GEMINI_API_KEY', default='')
     api_key_configured = bool(gemini_key) and gemini_key != 'your-gemini-api-key-here'
 
@@ -866,8 +836,8 @@ def api_dashboard_stats(request):
         'by_provider': by_provider,
         'top_domains': top_domains,
         'recent': recent,
-        'invite_count': InviteCode.objects.filter(is_active=True).count(),
-        'invite_total': InviteCode.objects.count(),
+        'pending_requests': pending_requests,
+        'total_requests': total_requests,
         'api_key_configured': api_key_configured,
         'backend_url': getattr(settings, 'BACKEND_URL', 'http://localhost:8000'),
     }, json_dumps_params={'default': str})

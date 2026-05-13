@@ -73,7 +73,7 @@ export default function RequestAccess() {
           </div>
           <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 10 }}>Request Access</h1>
           <p style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.65, maxWidth: 360, margin: '0 auto' }}>
-            PromptEnhancer Pro is invite-only. Submit your request and we'll review it and send your personal invite code.
+            Submit your request and the admin will review it. Once approved, you'll receive login credentials by email.
           </p>
         </div>
 
@@ -132,7 +132,7 @@ export default function RequestAccess() {
                       }}
                     />
                     {f.id === 'email' && (
-                      <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 5 }}>Your invite code will be sent to this address.</p>
+                      <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 5 }}>Your login credentials will be sent to this address once approved.</p>
                     )}
                   </div>
                 ))}
@@ -170,10 +170,6 @@ export default function RequestAccess() {
             </div>
 
             <div style={{ textAlign: 'center', marginTop: 18 }}>
-              <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 5 }}>
-                Already have an invite code?{' '}
-                <Link to="/register" style={{ color: 'var(--violet-light)', fontWeight: 500 }}>Register here →</Link>
-              </p>
               <p style={{ fontSize: 13, color: 'var(--text-3)' }}>
                 Already have an account?{' '}
                 <Link to="/login" style={{ color: 'var(--violet-light)', fontWeight: 500 }}>Sign in →</Link>
@@ -184,7 +180,7 @@ export default function RequestAccess() {
       </section>
 
       <footer style={{ borderTop: '1px solid var(--border)', marginTop: 'auto', padding: '32px 24px', textAlign: 'center' }}>
-        <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Invite-only · BYOK · Multi-platform AI prompt enhancer</p>
+        <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Admin-approved · BYOK · Multi-platform AI prompt enhancer</p>
       </footer>
     </div>
   )

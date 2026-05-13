@@ -47,12 +47,12 @@ const features = [
   {
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--rose-light)" strokeWidth="1.5">
-        <rect width="18" height="11" x="3" y="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
       </svg>
     ),
     bg: 'rgba(225,29,72,0.12)',
-    title: 'Invite-Only Access',
-    desc: 'Exclusive, invite-gated community. Request access and receive a personal invite code. Share with trusted collaborators.',
+    title: 'Admin-Approved Access',
+    desc: 'Request access and get approved by admin. Receive login credentials by email and start enhancing immediately.',
   },
   {
     icon: (
@@ -143,7 +143,7 @@ export default function Landing() {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
           </svg>
-          Invite-Only · BYOK · Multi-Platform
+          Admin-Approved · BYOK · Multi-Platform
         </div>
 
         <h1 style={{
@@ -181,11 +181,6 @@ export default function Landing() {
             border: '1px solid var(--border)', color: 'var(--text-2)',
           }}>Sign In →</Link>
         </div>
-
-        <p style={{ fontSize: 12, color: 'var(--text-3)' }}>
-          Already have an invite code?{' '}
-          <Link to="/register" style={{ color: 'var(--violet-light)' }}>Create your account →</Link>
-        </p>
       </section>
 
       {/* Platforms */}
@@ -237,8 +232,8 @@ export default function Landing() {
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', maxWidth: 760, margin: '0 auto' }}>
           {[
-            { num: '1', title: 'Request Access', desc: 'Submit your email. Receive a personal invite code once approved by admin.' },
-            { num: '2', title: 'Set Up in 2 Minutes', desc: 'Register with your invite code, install the extension, add your free API key.' },
+            { num: '1', title: 'Request Access', desc: 'Submit your email. Admin reviews and approves — you receive login credentials directly.' },
+            { num: '2', title: 'Set Up in 2 Minutes', desc: 'Log in, install the Chrome extension, and add your free Groq or Gemini API key.' },
             { num: '3', title: 'Enhance Every Prompt', desc: 'Click ✨ on any AI chat. Pick your mode. Watch your prompt transform instantly.' },
           ].map(s => (
             <div key={s.num} style={{ textAlign: 'center', padding: '0 28px' }}>
@@ -267,7 +262,7 @@ export default function Landing() {
             Ready to write better AI prompts?
           </h2>
           <p style={{ color: 'var(--text-2)', fontSize: 15, maxWidth: 460, margin: '0 auto 30px', lineHeight: 1.6 }}>
-            Invite-only. BYOK means no subscriptions — just unlimited, fast AI enhancement with your own free API key.
+            Admin-approved access. BYOK means no subscriptions — just unlimited, fast AI enhancement with your own free API key.
           </p>
           <Link to="/request-access" style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
@@ -275,7 +270,7 @@ export default function Landing() {
             background: 'linear-gradient(135deg, #7c3aed, #5b21b6)', color: '#fff',
             boxShadow: '0 4px 20px rgba(124,58,237,0.35)',
           }}>
-            Request Invite Access →
+            Request Access →
           </Link>
         </div>
       </section>
@@ -293,7 +288,7 @@ export default function Landing() {
           </div>
           <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-3)' }}>PromptEnhancer Pro</span>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Invite-only · BYOK · Multi-platform AI prompt enhancer</p>
+        <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Admin-approved · BYOK · Multi-platform AI prompt enhancer</p>
       </footer>
     </div>
   )

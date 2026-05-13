@@ -44,14 +44,21 @@ export interface AuthUser {
   is_staff: boolean
 }
 
+export interface AccessRequestItem {
+  id: number
+  email: string
+  name: string
+  reason: string
+  status: 'pending' | 'approved' | 'rejected'
+  requested_at: string
+  processed_at: string | null
+}
+
 export const api = {
   login: (email: string, password: string) =>
     req('/api/auth/login/', { method: 'POST', body: JSON.stringify({ email, password }) }),
 
   logout: () => req('/api/auth/logout/', { method: 'POST' }),
-
-  register: (data: { invite_code: string; name: string; email: string; password: string }) =>
-    req('/api/auth/register/', { method: 'POST', body: JSON.stringify(data) }),
 
   requestAccess: (data: { name: string; email: string; reason: string }) =>
     req('/api/auth/request-access/', { method: 'POST', body: JSON.stringify(data) }),
@@ -63,11 +70,11 @@ export const api = {
   adminEnhance: (text: string, action: string) =>
     req('/api/admin/enhance/', { method: 'POST', body: JSON.stringify({ text, action }) }),
 
-  adminGenerateInvite: (data: { label: string; email: string; max_uses: number }) =>
-    req('/api/admin/invite/generate/', { method: 'POST', body: JSON.stringify(data) }),
+  adminAccessRequests: () => req('/api/admin/access-requests/'),
 
-  adminInvites: () => req('/api/admin/invites/'),
+  adminApproveRequest: (id: number) =>
+    req(`/api/admin/access-requests/${id}/approve/`, { method: 'POST' }),
 
-  validateInvite: (code: string) =>
-    req('/api/validate-invite/', { method: 'POST', body: JSON.stringify({ code }) }),
+  adminRejectRequest: (id: number) =>
+    req(`/api/admin/access-requests/${id}/reject/`, { method: 'POST' }),
 }
