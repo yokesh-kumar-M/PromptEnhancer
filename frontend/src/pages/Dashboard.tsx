@@ -234,12 +234,6 @@ export default function Dashboard() {
     { id: 'platforms-section', label: 'Downloads Hub', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg> },
   ]
 
-  const inp: React.CSSProperties = {
-    width: '100%', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
-    borderRadius: 8, padding: '9px 12px', color: 'var(--text-1)', fontSize: 13,
-    fontFamily: 'inherit', outline: 'none',
-  }
-
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)', overflow: 'hidden' }}>
       {/* Sidebar */}

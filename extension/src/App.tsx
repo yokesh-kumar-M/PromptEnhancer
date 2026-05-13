@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Sparkles, Check, Loader2, History, Settings,
+  Sparkles, Check, History, Settings,
   BookTemplate, Trash2, Clock, ChevronRight,
   Wand2, Briefcase, Scissors, Code, Zap, Copy, Search,
   ShieldCheck, AlertCircle, Eye, EyeOff, ExternalLink,
