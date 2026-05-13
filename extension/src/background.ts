@@ -139,7 +139,6 @@ async function callGeminiEnhance(
 
 async function logUsage(
   backendUrl: string,
-  inviteCode: string,
   action: string,
   provider: string,
   model: string,
@@ -152,7 +151,6 @@ async function logUsage(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        invite_code: inviteCode,
         action,
         provider,
         model,
@@ -182,22 +180,13 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg) => {
     if (msg.action !== 'startStream') return;
 
-    chrome.storage.local.get(['inviteCode', 'settings', 'apiSettings'], async (result) => {
-      const inviteCode = (result.inviteCode as string) || '';
+    chrome.storage.local.get(['settings', 'apiSettings'], async (result) => {
       const settings = (result.settings as Record<string, unknown>) || {};
       const backendUrl = (settings.backendUrl as string) || DEFAULT_BACKEND_URL;
       const apiSettings = (result.apiSettings as { provider?: string; apiKey?: string; model?: string }) || {};
       const provider = apiSettings.provider || 'gemini';
       const apiKey = apiSettings.apiKey || '';
       const model = apiSettings.model || '';
-
-      if (!inviteCode) {
-        port.postMessage({
-          type: 'error',
-          error: 'No invite code set. Click the extension icon and enter your code.',
-        });
-        return;
-      }
 
       if (!apiKey) {
         port.postMessage({
@@ -219,7 +208,7 @@ chrome.runtime.onConnect.addListener((port) => {
         port.postMessage({ type: 'done', text: enhanced });
 
         const resolvedModel = model || (provider === 'groq' ? 'llama-3.3-70b-versatile' : 'gemini-2.0-flash');
-        logUsage(backendUrl, inviteCode, msg.promptType, provider, resolvedModel, msg.text.length, enhanced.length, domain);
+        logUsage(backendUrl, msg.promptType, provider, resolvedModel, msg.text.length, enhanced.length, domain);
 
       } catch (err: any) {
         port.postMessage({ type: 'error', error: err.message || 'Enhancement failed. Check your API key in Settings.' });
@@ -267,34 +256,6 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'clearHistory') {
     chrome.storage.local.set({ promptHistory: [] });
     sendResponse({ success: true });
-    return true;
-  }
-
-  if (request.action === 'validateInvite') {
-    chrome.storage.local.get(['settings'], async (result) => {
-      const settings = (result.settings as Record<string, unknown>) || {};
-      const backendUrl = (settings.backendUrl as string) || DEFAULT_BACKEND_URL;
-
-      const tryFetch = async (attempt: number): Promise<void> => {
-        try {
-          const resp = await fetch(`${backendUrl}/api/validate-invite/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: request.code }),
-            signal: AbortSignal.timeout(20000),
-          });
-          sendResponse(await resp.json());
-        } catch {
-          if (attempt < 2) {
-            setTimeout(() => tryFetch(attempt + 1), 6000);
-          } else {
-            sendResponse({ valid: false, message: 'Backend unreachable. It may still be starting — try again in 30s.' });
-          }
-        }
-      };
-
-      tryFetch(0);
-    });
     return true;
   }
 

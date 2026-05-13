@@ -4,7 +4,7 @@ import {
   Sparkles, Check, Loader2, History, Settings,
   BookTemplate, Trash2, Clock, ChevronRight,
   Wand2, Briefcase, Scissors, Code, Zap, Copy, Search,
-  ShieldCheck, AlertCircle, KeyRound, Eye, EyeOff, ExternalLink,
+  ShieldCheck, AlertCircle, Eye, EyeOff, ExternalLink,
 } from 'lucide-react';
 import './App.css';
 import './index.css';
@@ -56,11 +56,6 @@ const MODE_GUIDE = [
 ];
 
 function App() {
-  const [inviteCode, setInviteCode] = useState('');
-  const [inviteInput, setInviteInput] = useState('');
-  const [inviteLabel, setInviteLabel] = useState('');
-  const [validateStatus, setValidateStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
-  const [validateMsg, setValidateMsg] = useState('');
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -83,11 +78,7 @@ function App() {
 
   useEffect(() => {
     if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(['inviteCode', 'inviteLabel', 'settings', 'apiSettings'], (result: any) => {
-        if (result.inviteCode) {
-          setInviteCode(result.inviteCode);
-          setInviteLabel(result.inviteLabel || '');
-        }
+      chrome.storage.local.get(['settings', 'apiSettings'], (result: any) => {
         if (result.settings?.backendUrl) {
           setBackendUrl(result.settings.backendUrl);
           setBackendUrlInput(result.settings.backendUrl);
@@ -124,29 +115,6 @@ function App() {
     if (typeof chrome !== 'undefined' && chrome.runtime) {
       chrome.runtime.sendMessage({ action: 'getTemplates' }, (response: any) => {
         if (response?.templates) setTemplates(response.templates);
-      });
-    }
-  };
-
-  const validateInvite = () => {
-    if (!inviteInput.trim()) return;
-    setValidateStatus('loading');
-    setValidateMsg('');
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: 'validateInvite', code: inviteInput.trim() }, (response: any) => {
-        if (response?.valid) {
-          const label = response.label || '';
-          chrome.storage.local.set({ inviteCode: inviteInput.trim(), inviteLabel: label }, () => {
-            setInviteCode(inviteInput.trim());
-            setInviteLabel(label);
-            setValidateStatus('success');
-            setValidateMsg(label ? `Welcome, ${label}!` : 'Access granted!');
-          });
-        } else {
-          setValidateStatus('error');
-          setValidateMsg(response?.message || 'Invalid code. Try again.');
-          setTimeout(() => setValidateStatus('idle'), 3000);
-        }
       });
     }
   };
@@ -209,18 +177,6 @@ function App() {
     }
   };
 
-  const revokeAccess = () => {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.remove(['inviteCode', 'inviteLabel'], () => {
-        setInviteCode('');
-        setInviteLabel('');
-        setInviteInput('');
-        setValidateStatus('idle');
-        setValidateMsg('');
-      });
-    }
-  };
-
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedId(id);
@@ -256,76 +212,6 @@ function App() {
   );
 
   const hasApiKey = apiSettings.apiKey.length > 0;
-
-  // ---- Gate: invite code screen ----
-  if (!inviteCode) {
-    return (
-      <div className="popup-container gate-container">
-        <main className="gate-main">
-          <div className="gate-icon-wrap">
-            <KeyRound className="gate-icon" strokeWidth={1.5} />
-          </div>
-
-          <div className="gate-badge">
-            <ShieldCheck style={{ width: 10, height: 10 }} strokeWidth={2} />
-            Invite-only · v2.0
-          </div>
-
-          <h1 className="gate-title">Enter Your Invite Code</h1>
-          <p className="gate-desc">
-            PromptEnhancer Pro is invite-only.<br />Enter the code from your approval email.
-          </p>
-
-          <div className="gate-input-group">
-            <input
-              type="text"
-              className="gate-input"
-              placeholder="XXXX-XXXX-XXXX"
-              value={inviteInput}
-              onChange={(e) => setInviteInput(e.target.value.toUpperCase())}
-              spellCheck={false}
-              autoComplete="off"
-              onKeyDown={(e) => e.key === 'Enter' && validateInvite()}
-            />
-          </div>
-
-          {validateMsg && (
-            <div className="gate-msg" style={{ color: validateStatus === 'error' ? '#EF4444' : '#10B981' }}>
-              {validateStatus === 'success'
-                ? <Check style={{ width: 13, height: 13 }} strokeWidth={2.5} />
-                : <AlertCircle style={{ width: 13, height: 13 }} strokeWidth={2} />}
-              {validateMsg}
-            </div>
-          )}
-
-          <button
-            onClick={validateInvite}
-            disabled={validateStatus === 'loading' || !inviteInput.trim()}
-            className="gate-btn"
-          >
-            <AnimatePresence mode="wait">
-              {validateStatus === 'idle' && <motion.span key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>Validate Code</motion.span>}
-              {validateStatus === 'loading' && <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><Loader2 style={{ width: 18, height: 18, animation: 'spin 1s linear infinite' }} strokeWidth={2} /></motion.div>}
-              {(validateStatus === 'success' || validateStatus === 'error') && <motion.span key="done" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>{validateStatus === 'success' ? '✓ Access Granted' : '✗ Try Again'}</motion.span>}
-            </AnimatePresence>
-          </button>
-
-          <div className="gate-divider" />
-
-          <div className="gate-access">
-            Need access?&nbsp;
-            <a href="https://promptenhancer-frontend.vercel.app/register" target="_blank" rel="noopener noreferrer">
-              Request an invite →
-            </a>
-          </div>
-        </main>
-
-        <footer className="footer"><div className="status-dot" />Invite code required</footer>
-      </div>
-    );
-  }
-
-  // ---- Main UI ----
   return (
     <div className="popup-container">
       <div className="glow glow-top" />
@@ -338,7 +224,7 @@ function App() {
           </div>
           <div>
             <h1 className="header-title">PromptEnhancer Pro</h1>
-            <p className="header-subtitle">{inviteLabel ? `${inviteLabel} · v2.0` : 'Active · v2.0'}</p>
+            <p className="header-subtitle">Active · v2.0</p>
           </div>
         </div>
       </header>
@@ -648,20 +534,7 @@ function App() {
                 </p>
               </div>
 
-              {/* ---- Invite Code Info ---- */}
               <div className="card">
-                <div className="setting-item">
-                  <div>
-                    <div className="setting-label">Access Code</div>
-                    <div className="setting-desc" style={{ fontFamily: 'monospace', letterSpacing: '0.05em' }}>
-                      {inviteCode.substring(0, 6)}{'•'.repeat(Math.max(0, inviteCode.length - 6))}
-                    </div>
-                  </div>
-                  <button onClick={revokeAccess} style={{ fontSize: 11, color: '#EF4444', background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>
-                    Revoke
-                  </button>
-                </div>
-                <div className="setting-divider" />
                 <div className="setting-item">
                   <div>
                     <div className="setting-label">Supported Sites</div>
@@ -674,7 +547,13 @@ function App() {
               <div className="card about-card">
                 <div className="setting-label">About</div>
                 <div className="setting-desc" style={{ marginTop: 4 }}>
-                  PromptEnhancer Pro v2.0 · BYOK · Invite-only · Groq + Gemini
+                  PromptEnhancer Pro v2.0 · BYOK · Admin-approved · Groq + Gemini
+                </div>
+                <div style={{ marginTop: 8, fontSize: 11, color: '#52525B' }}>
+                  Need access?{' '}
+                  <a href="https://promptenhancer-frontend.vercel.app/request-access" target="_blank" rel="noopener noreferrer" style={{ color: '#8B5CF6' }}>
+                    Request it here →
+                  </a>
                 </div>
               </div>
 
