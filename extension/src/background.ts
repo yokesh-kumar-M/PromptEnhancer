@@ -39,14 +39,55 @@ chrome.runtime.onInstalled.addListener((details) => {
         historyLimit: 50,
         backendUrl: 'https://promptenhancer-backend.onrender.com',
       },
+      // Legacy single-key shape (kept for content script compatibility).
       apiSettings: {
         provider: 'gemini',
         apiKey: '',
         model: '',
       },
+      // New per-provider cloud-syncable settings used by the popup.
+      cloudSettings: {
+        preferred_provider: 'gemini',
+        preferred_model: '',
+        groq_api_key: '',
+        gemini_api_key: '',
+        theme: 'dark',
+        density: 'comfortable',
+        cloud_sync_enabled: true,
+      },
     });
   }
 });
+
+interface CloudSettings {
+  preferred_provider: 'groq' | 'gemini';
+  preferred_model: string;
+  groq_api_key: string;
+  gemini_api_key: string;
+}
+
+/** Resolve API config from new cloudSettings (preferred) or legacy apiSettings. */
+async function resolveApiConfig(): Promise<{ provider: 'groq' | 'gemini'; apiKey: string; model: string }> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['cloudSettings', 'apiSettings'], (r) => {
+      const cs = (r.cloudSettings as CloudSettings | undefined);
+      if (cs && (cs.groq_api_key || cs.gemini_api_key)) {
+        const provider = cs.preferred_provider;
+        const apiKey = provider === 'groq' ? cs.groq_api_key : cs.gemini_api_key;
+        if (apiKey) {
+          resolve({ provider, apiKey, model: cs.preferred_model || '' });
+          return;
+        }
+      }
+      const legacy = (r.apiSettings as { provider?: 'groq' | 'gemini'; apiKey?: string; model?: string } | undefined) || {};
+      resolve({
+        provider: legacy.provider || 'gemini',
+        apiKey: legacy.apiKey || '',
+        model: legacy.model || '',
+      });
+    });
+  });
+}
 
 // ======================== DEFAULT TEMPLATES ========================
 
@@ -180,13 +221,10 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onMessage.addListener(async (msg) => {
     if (msg.action !== 'startStream') return;
 
-    chrome.storage.local.get(['settings', 'apiSettings'], async (result) => {
+    chrome.storage.local.get(['settings'], async (result) => {
       const settings = (result.settings as Record<string, unknown>) || {};
       const backendUrl = (settings.backendUrl as string) || DEFAULT_BACKEND_URL;
-      const apiSettings = (result.apiSettings as { provider?: string; apiKey?: string; model?: string }) || {};
-      const provider = apiSettings.provider || 'gemini';
-      const apiKey = apiSettings.apiKey || '';
-      const model = apiSettings.model || '';
+      const { provider, apiKey, model } = await resolveApiConfig();
 
       if (!apiKey) {
         port.postMessage({

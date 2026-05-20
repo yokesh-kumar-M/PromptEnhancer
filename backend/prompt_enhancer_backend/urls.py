@@ -30,6 +30,15 @@ urlpatterns = [
     path('api/dashboard/stats/', web_views.api_dashboard_stats, name='api_dashboard_stats'),
     path('api/health/', web_views.health_check, name='health_check'),
 
+    # Extension API — cloud sync for the Chrome extension
+    path('api/extension/login/', web_views.extension_login, name='extension_login'),
+    path('api/extension/logout/', web_views.extension_logout, name='extension_logout'),
+    path('api/extension/check-access/', web_views.extension_check_access, name='extension_check_access'),
+    path('api/extension/me/', web_views.extension_me, name='extension_me'),
+    path('api/extension/settings/', web_views.extension_settings, name='extension_settings'),
+    path('api/extension/history/', web_views.extension_history, name='extension_history'),
+    path('api/extension/templates/', web_views.extension_templates, name='extension_templates'),
+
     # Every UI path → React frontend (Vercel)
     path('', RedirectView.as_view(url=FRONTEND_URL, permanent=False)),
     path('login/', RedirectView.as_view(url=f'{FRONTEND_URL}/login', permanent=False)),

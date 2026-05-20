@@ -1,571 +1,470 @@
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import {
-  Sparkles, Check, History, Settings,
-  BookTemplate, Trash2, Clock, ChevronRight,
-  Wand2, Briefcase, Scissors, Code, Zap, Copy, Search,
-  ShieldCheck, AlertCircle, Eye, EyeOff, ExternalLink,
+  ShieldCheck, History as HistoryIcon, BookTemplate, Settings as SettingsIcon, Zap,
 } from 'lucide-react';
 import './App.css';
 import './index.css';
+import { Header } from './components/Header';
+import { LoginScreen, ApprovalPending } from './screens/LoginScreen';
+import { HomeTab } from './screens/HomeTab';
+import { EnhanceTab } from './screens/EnhanceTab';
+import { HistoryTab } from './screens/HistoryTab';
+import { TemplatesTab } from './screens/TemplatesTab';
+import { SettingsTab } from './screens/SettingsTab';
+import type {
+  AuthState, CloudSettings, HistoryItem, LocalSettings, Tab, Template,
+} from './lib/types';
+import {
+  DEFAULT_CLOUD_SETTINGS, DEFAULT_LOCAL_SETTINGS, applyAppearance,
+  clearAuth, getAuth, getCloudSettingsLocal, getLocalHistory, getLocalSettings,
+  getLocalTemplates, saveCloudSettingsLocal, saveLocalSettings,
+  setLocalHistory, setLocalTemplates, setPendingEmail,
+} from './lib/storage';
+import {
+  createTemplate, deleteHistory, deleteTemplate, fetchHistory, fetchMe,
+  fetchTemplates, logoutExtension, patchSettings, postHistory, updateTemplate,
+} from './lib/api';
 
-type Tab = 'home' | 'history' | 'templates' | 'settings';
-type Provider = 'groq' | 'gemini';
-
-interface ApiSettings {
-  provider: Provider;
-  apiKey: string;
-  model: string;
-}
-
-interface HistoryItem {
-  id: string;
-  original: string;
-  enhanced: string;
-  type: string;
-  timestamp: number;
-  domain?: string;
-}
-
-interface Template {
-  id: string;
-  shortcut: string;
-  title: string;
-  content: string;
-  category: string;
-}
-
-const GROQ_MODELS = [
-  { value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Recommended)' },
-  { value: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (Fastest)' },
-  { value: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
-];
-
-const GEMINI_MODELS = [
-  { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (Recommended)' },
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Smartest)' },
-  { value: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
-];
-
-const MODE_GUIDE = [
-  { icon: <Wand2 style={{ width: 12, height: 12 }} strokeWidth={1.5} />, color: '#8B5CF6', mode: 'Enhance', desc: 'Adds structure, context & detail — 3-5x better AI output' },
-  { icon: <Briefcase style={{ width: 12, height: 12 }} strokeWidth={1.5} />, color: '#3B82F6', mode: 'Professional', desc: 'Rewrites in formal, corporate language' },
-  { icon: <Scissors style={{ width: 12, height: 12 }} strokeWidth={1.5} />, color: '#10B981', mode: 'Shorten', desc: 'Cuts to the point, preserves all key info' },
-  { icon: <Code style={{ width: 12, height: 12 }} strokeWidth={1.5} />, color: '#F59E0B', mode: 'Code', desc: 'Technical precision for programming tasks' },
-  { icon: <Zap style={{ width: 12, height: 12 }} strokeWidth={1.5} />, color: '#EC4899', mode: 'Creative', desc: 'Adds imagination, emotion & vivid language' },
-];
+type Mode = 'app' | 'login' | 'pending';
 
 function App() {
+  const [auth, setAuth] = useState<AuthState>({ status: 'loading', token: '', user: null, pendingEmail: '' });
+  const [mode, setMode] = useState<Mode>('app');
   const [activeTab, setActiveTab] = useState<Tab>('home');
+  const [cloudSettings, setCloudSettings] = useState<CloudSettings>(DEFAULT_CLOUD_SETTINGS);
+  const [localSettings, setLocalSettingsState] = useState<LocalSettings>(DEFAULT_LOCAL_SETTINGS);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [stats, setStats] = useState({ total: 0, today: 0 });
-  const [backendUrl, setBackendUrl] = useState('https://promptenhancer-backend.onrender.com');
-  const [backendUrlInput, setBackendUrlInput] = useState('https://promptenhancer-backend.onrender.com');
-  const [urlSaved, setUrlSaved] = useState(false);
 
-  // BYOK state
-  const [apiSettings, setApiSettings] = useState<ApiSettings>({ provider: 'gemini', apiKey: '', model: '' });
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [apiProvider, setApiProvider] = useState<Provider>('gemini');
-  const [apiModel, setApiModel] = useState('');
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [apiKeySaved, setApiKeySaved] = useState(false);
-  const [verifyStatus, setVerifyStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle');
-  const [verifyMsg, setVerifyMsg] = useState('');
-
+  // Initial load
   useEffect(() => {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(['settings', 'apiSettings'], (result: any) => {
-        if (result.settings?.backendUrl) {
-          setBackendUrl(result.settings.backendUrl);
-          setBackendUrlInput(result.settings.backendUrl);
+    (async () => {
+      const [a, cs, ls, h, t] = await Promise.all([
+        getAuth(),
+        getCloudSettingsLocal(),
+        getLocalSettings(),
+        getLocalHistory(),
+        getLocalTemplates(),
+      ]);
+      setAuth(a);
+      setCloudSettings(cs);
+      setLocalSettingsState(ls);
+      setHistory(h);
+      setTemplates(t);
+      applyAppearance(cs.theme, cs.density);
+
+      if (a.status === 'pending') setMode('pending');
+      else if (a.status === 'unauthenticated') setMode('app'); // allow local mode
+      else setMode('app');
+
+      // Pull remote state if logged in
+      if (a.status === 'authenticated' && a.token) {
+        try {
+          const me = await fetchMe(a.token);
+          setCloudSettings(me.settings);
+          await saveCloudSettingsLocal(me.settings);
+          applyAppearance(me.settings.theme, me.settings.density);
+          await pullRemoteData(a.token);
+        } catch (err: unknown) {
+          const e = err as { status?: number };
+          if (e.status === 401) {
+            await clearAuth();
+            setAuth({ status: 'unauthenticated', token: '', user: null, pendingEmail: '' });
+          }
         }
-        if (result.apiSettings) {
-          const saved = result.apiSettings as ApiSettings;
-          setApiSettings(saved);
-          setApiProvider(saved.provider || 'gemini');
-          setApiKeyInput(saved.apiKey || '');
-          setApiModel(saved.model || '');
-        }
-      });
-    }
-    loadHistory();
-    loadTemplates();
+      }
+    })();
   }, []);
 
-  const loadHistory = () => {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: 'getHistory' }, (response: any) => {
-        if (response?.history) {
-          setHistory(response.history);
-          const today = new Date().toDateString();
-          const todayCount = response.history.filter(
-            (h: HistoryItem) => new Date(h.timestamp).toDateString() === today,
-          ).length;
-          setStats({ total: response.history.length, today: todayCount });
+  const pullRemoteData = async (token: string) => {
+    try {
+      const [h, tpl] = await Promise.all([
+        fetchHistory(token, 100),
+        fetchTemplates(token),
+      ]);
+      const remoteHistory: HistoryItem[] = h.entries.map((e) => ({
+        id: `r${e.id}`,
+        remoteId: e.id,
+        original: e.original_text,
+        enhanced: e.enhanced_text,
+        type: e.action,
+        timestamp: new Date(e.created_at).getTime(),
+        domain: e.domain,
+        provider: e.provider,
+        model: e.model_used,
+      }));
+      setHistory(remoteHistory);
+      await setLocalHistory(remoteHistory);
+
+      const remoteTpl: Template[] = tpl.templates.map((t) => ({
+        id: `r${t.id}`,
+        remoteId: t.id,
+        shortcut: t.shortcut,
+        title: t.title,
+        content: t.content,
+        category: t.category,
+        isDefault: t.is_default,
+      }));
+      setTemplates(remoteTpl);
+      await setLocalTemplates(remoteTpl);
+    } catch { /* keep local */ }
+  };
+
+  // Listen for new history events from background (in-page enhance)
+  useEffect(() => {
+    if (typeof chrome === 'undefined' || !chrome.storage) return;
+    const listener = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
+      if (area !== 'local') return;
+      if (changes.promptHistory) {
+        setHistory((changes.promptHistory.newValue as HistoryItem[]) || []);
+      }
+      if (changes.cloudSettings) {
+        const cs = changes.cloudSettings.newValue as CloudSettings | undefined;
+        if (cs) {
+          setCloudSettings(cs);
+          applyAppearance(cs.theme, cs.density);
         }
-      });
-    }
-  };
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => chrome.storage.onChanged.removeListener(listener);
+  }, []);
 
-  const loadTemplates = () => {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: 'getTemplates' }, (response: any) => {
-        if (response?.templates) setTemplates(response.templates);
-      });
+  const handleAuthenticated = useCallback((next: AuthState) => {
+    setAuth(next);
+    if (next.status === 'pending') setMode('pending');
+    else setMode('app');
+    if (next.status === 'authenticated' && next.token) {
+      pullRemoteData(next.token);
     }
-  };
+  }, []);
 
-  const saveApiSettings = () => {
-    const newSettings: ApiSettings = { provider: apiProvider, apiKey: apiKeyInput.trim(), model: apiModel };
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.set({ apiSettings: newSettings }, () => {
-        setApiSettings(newSettings);
-        setApiKeySaved(true);
-        setVerifyStatus('idle');
-        setVerifyMsg('');
-        setTimeout(() => setApiKeySaved(false), 2000);
-      });
+  const handleLogout = useCallback(async () => {
+    if (auth.token) logoutExtension(auth.token);
+    await clearAuth();
+    setAuth({ status: 'unauthenticated', token: '', user: null, pendingEmail: '' });
+    setMode('app');
+    setActiveTab('home');
+  }, [auth.token]);
+
+  const onCloudPatch = useCallback(async (patch: Partial<CloudSettings>) => {
+    const next = { ...cloudSettings, ...patch };
+    setCloudSettings(next);
+    await saveCloudSettingsLocal(next);
+    applyAppearance(next.theme, next.density);
+    if (auth.token) {
+      try {
+        const r = await patchSettings(auth.token, patch);
+        setCloudSettings(r.settings);
+        await saveCloudSettingsLocal(r.settings);
+      } catch { /* keep local */ }
     }
-  };
+  }, [cloudSettings, auth.token]);
 
-  const verifyApiKey = () => {
-    if (!apiKeyInput.trim()) return;
-    setVerifyStatus('loading');
-    setVerifyMsg('');
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
+  const onLocalPatch = useCallback(async (patch: Partial<LocalSettings>) => {
+    const next = await saveLocalSettings(patch);
+    setLocalSettingsState(next);
+  }, []);
+
+  const onVerifyKey = useCallback(async (provider: 'groq' | 'gemini', apiKey: string) => {
+    return new Promise<{ valid: boolean; error?: string }>((resolve) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime) {
+        resolve({ valid: false, error: 'Chrome runtime unavailable' });
+        return;
+      }
       chrome.runtime.sendMessage(
-        { action: 'verifyApiKey', apiKey: apiKeyInput.trim(), provider: apiProvider },
-        (response: any) => {
-          if (response?.valid) {
-            setVerifyStatus('ok');
-            setVerifyMsg('API key is valid!');
-          } else {
-            setVerifyStatus('error');
-            setVerifyMsg(response?.error || 'Invalid API key.');
-          }
-          setTimeout(() => { setVerifyStatus('idle'); setVerifyMsg(''); }, 4000);
-        },
+        { action: 'verifyApiKey', apiKey, provider },
+        (resp: { valid?: boolean; error?: string }) => resolve({ valid: !!resp?.valid, error: resp?.error })
       );
-    }
-  };
-
-  const clearHistory = () => {
-    if (typeof chrome !== 'undefined' && chrome.runtime) {
-      chrome.runtime.sendMessage({ action: 'clearHistory' }, () => {
-        setHistory([]);
-        setStats({ total: 0, today: 0 });
-      });
-    }
-  };
-
-  const saveBackendUrl = () => {
-    const url = backendUrlInput.trim().replace(/\/$/, '');
-    if (!url) return;
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.get(['settings'], (result: any) => {
-        const settings = result.settings || {};
-        chrome.storage.local.set({ settings: { ...settings, backendUrl: url } }, () => {
-          setBackendUrl(url);
-          setUrlSaved(true);
-          setTimeout(() => setUrlSaved(false), 2000);
-        });
-      });
-    }
-  };
-
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedId(id);
-      setTimeout(() => setCopiedId(null), 1500);
     });
-  };
+  }, []);
 
-  const formatTime = (timestamp: number) => {
-    const diff = Date.now() - timestamp;
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    return new Date(timestamp).toLocaleDateString();
-  };
-
-  const getTypeIcon = (type: string) => {
-    const s = { style: { width: 12, height: 12 }, strokeWidth: 2 as const };
-    switch (type) {
-      case 'Enhance': return <Wand2 {...s} style={{ ...s.style, color: '#8B5CF6' }} />;
-      case 'Professional': return <Briefcase {...s} style={{ ...s.style, color: '#3B82F6' }} />;
-      case 'Shorten': return <Scissors {...s} style={{ ...s.style, color: '#10B981' }} />;
-      case 'Code': return <Code {...s} style={{ ...s.style, color: '#F59E0B' }} />;
-      case 'Creative': return <Zap {...s} style={{ ...s.style, color: '#EC4899' }} />;
-      default: return <Sparkles {...s} style={{ ...s.style, color: '#8B5CF6' }} />;
+  const onAddHistory = useCallback(async (entry: Omit<HistoryItem, 'id' | 'timestamp'>) => {
+    const local: HistoryItem = {
+      ...entry,
+      id: `l${Date.now()}`,
+      timestamp: Date.now(),
+    };
+    const next = [local, ...history].slice(0, 200);
+    setHistory(next);
+    await setLocalHistory(next);
+    if (auth.token && cloudSettings.cloud_sync_enabled) {
+      try {
+        const r = await postHistory(auth.token, {
+          action: entry.type,
+          provider: entry.provider || cloudSettings.preferred_provider,
+          model: entry.model || '',
+          original: entry.original,
+          enhanced: entry.enhanced,
+          domain: entry.domain || '',
+        });
+        local.remoteId = r.entry.id;
+        local.id = `r${r.entry.id}`;
+        const updated = [local, ...next.slice(1)];
+        setHistory(updated);
+        await setLocalHistory(updated);
+      } catch { /* local-only */ }
     }
-  };
+  }, [history, auth.token, cloudSettings]);
 
-  const filteredTemplates = templates.filter(
-    (t) =>
-      t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.shortcut.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.category.toLowerCase().includes(searchTerm.toLowerCase()),
-  );
+  const onDeleteHistory = useCallback(async (id: string, remoteId?: number) => {
+    const next = history.filter((h) => h.id !== id);
+    setHistory(next);
+    await setLocalHistory(next);
+    if (auth.token && remoteId) {
+      try { await deleteHistory(auth.token, remoteId); } catch { /* swallow */ }
+    }
+  }, [history, auth.token]);
 
-  const hasApiKey = apiSettings.apiKey.length > 0;
+  const onClearHistory = useCallback(async () => {
+    setHistory([]);
+    await setLocalHistory([]);
+    if (auth.token) {
+      try { await deleteHistory(auth.token); } catch { /* swallow */ }
+    }
+  }, [auth.token]);
+
+  const onCreateTemplate = useCallback(async (t: Omit<Template, 'id'>) => {
+    if (auth.token) {
+      const r = await createTemplate(auth.token, t);
+      const created: Template = {
+        id: `r${r.template.id}`, remoteId: r.template.id,
+        shortcut: r.template.shortcut, title: r.template.title,
+        content: r.template.content, category: r.template.category,
+        isDefault: r.template.is_default,
+      };
+      const next = [...templates, created];
+      setTemplates(next);
+      await setLocalTemplates(next);
+    } else {
+      const created: Template = { ...t, id: `l${Date.now()}` };
+      const next = [...templates, created];
+      setTemplates(next);
+      await setLocalTemplates(next);
+    }
+  }, [templates, auth.token]);
+
+  const onUpdateTemplate = useCallback(async (id: string, patch: Partial<Template>) => {
+    const target = templates.find((t) => t.id === id);
+    if (!target) return;
+    if (auth.token && target.remoteId) {
+      const r = await updateTemplate(auth.token, {
+        id: target.remoteId,
+        shortcut: patch.shortcut,
+        title: patch.title,
+        content: patch.content,
+        category: patch.category,
+      });
+      const next = templates.map((t) => (t.id === id ? {
+        ...t,
+        shortcut: r.template.shortcut, title: r.template.title,
+        content: r.template.content, category: r.template.category,
+        isDefault: r.template.is_default,
+      } : t));
+      setTemplates(next);
+      await setLocalTemplates(next);
+    } else {
+      const next = templates.map((t) => (t.id === id ? { ...t, ...patch } : t));
+      setTemplates(next);
+      await setLocalTemplates(next);
+    }
+  }, [templates, auth.token]);
+
+  const onDeleteTemplate = useCallback(async (id: string) => {
+    const target = templates.find((t) => t.id === id);
+    if (!target) return;
+    const next = templates.filter((t) => t.id !== id);
+    setTemplates(next);
+    await setLocalTemplates(next);
+    if (auth.token && target.remoteId) {
+      try { await deleteTemplate(auth.token, target.remoteId); } catch { /* swallow */ }
+    }
+  }, [templates, auth.token]);
+
+  const onResyncFromCloud = useCallback(async () => {
+    if (!auth.token) return;
+    const me = await fetchMe(auth.token);
+    setCloudSettings(me.settings);
+    await saveCloudSettingsLocal(me.settings);
+    applyAppearance(me.settings.theme, me.settings.density);
+    await pullRemoteData(auth.token);
+  }, [auth.token]);
+
+  // ---- Render ----
+  if (auth.status === 'loading') {
+    return (
+      <div className="popup-container">
+        <div className="splash"><div className="splash-spinner" /></div>
+      </div>
+    );
+  }
+
+  if (mode === 'pending') {
+    return (
+      <div className="popup-container">
+        <ApprovalPending
+          email={auth.pendingEmail}
+          onSignInAnyway={() => setMode('login')}
+          onBackToLogin={async () => {
+            await setPendingEmail('');
+            setAuth({ status: 'unauthenticated', token: '', user: null, pendingEmail: '' });
+            setMode('login');
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (mode === 'login') {
+    return (
+      <div className="popup-container">
+        <LoginScreen
+          initialEmail={auth.pendingEmail}
+          onAuthenticated={handleAuthenticated}
+        />
+        <div className="login-back">
+          <button className="btn-ghost-muted" onClick={() => setMode('app')}>← Continue in local mode</button>
+        </div>
+      </div>
+    );
+  }
+
+  return <AppShell
+    auth={auth}
+    cloudSettings={cloudSettings}
+    localSettings={localSettings}
+    history={history}
+    templates={templates}
+    activeTab={activeTab}
+    setActiveTab={setActiveTab}
+    onOpenLogin={() => setMode('login')}
+    onLogout={handleLogout}
+    onCloudPatch={onCloudPatch}
+    onLocalPatch={onLocalPatch}
+    onVerifyKey={onVerifyKey}
+    onAddHistory={onAddHistory}
+    onDeleteHistory={onDeleteHistory}
+    onClearHistory={onClearHistory}
+    onCreateTemplate={onCreateTemplate}
+    onUpdateTemplate={onUpdateTemplate}
+    onDeleteTemplate={onDeleteTemplate}
+    onResyncFromCloud={onResyncFromCloud}
+  />;
+}
+
+interface ShellProps {
+  auth: AuthState;
+  cloudSettings: CloudSettings;
+  localSettings: LocalSettings;
+  history: HistoryItem[];
+  templates: Template[];
+  activeTab: Tab;
+  setActiveTab: (t: Tab) => void;
+  onOpenLogin: () => void;
+  onLogout: () => Promise<void>;
+  onCloudPatch: (patch: Partial<CloudSettings>) => Promise<void>;
+  onLocalPatch: (patch: Partial<LocalSettings>) => Promise<void>;
+  onVerifyKey: (p: 'groq' | 'gemini', k: string) => Promise<{ valid: boolean; error?: string }>;
+  onAddHistory: (entry: Omit<HistoryItem, 'id' | 'timestamp'>) => Promise<void>;
+  onDeleteHistory: (id: string, remoteId?: number) => Promise<void>;
+  onClearHistory: () => Promise<void>;
+  onCreateTemplate: (t: Omit<Template, 'id'>) => Promise<void>;
+  onUpdateTemplate: (id: string, patch: Partial<Template>) => Promise<void>;
+  onDeleteTemplate: (id: string) => Promise<void>;
+  onResyncFromCloud: () => Promise<void>;
+}
+
+function AppShell(props: ShellProps) {
+  const {
+    auth, cloudSettings, localSettings, history, templates, activeTab, setActiveTab,
+    onOpenLogin, onLogout, onCloudPatch, onLocalPatch, onVerifyKey,
+    onAddHistory, onDeleteHistory, onClearHistory,
+    onCreateTemplate, onUpdateTemplate, onDeleteTemplate, onResyncFromCloud,
+  } = props;
+
+  const activeKey = cloudSettings.preferred_provider === 'groq'
+    ? cloudSettings.groq_api_key : cloudSettings.gemini_api_key;
+  const hasApiKey = activeKey.length > 0;
+
+  const tabs = useMemo(() => ([
+    { id: 'home' as Tab, icon: <ShieldCheck style={{ width: 13, height: 13 }} strokeWidth={1.6} />, label: 'Home' },
+    { id: 'enhance' as Tab, icon: <Zap style={{ width: 13, height: 13 }} strokeWidth={1.6} />, label: 'Enhance' },
+    { id: 'history' as Tab, icon: <HistoryIcon style={{ width: 13, height: 13 }} strokeWidth={1.6} />, label: 'History' },
+    { id: 'templates' as Tab, icon: <BookTemplate style={{ width: 13, height: 13 }} strokeWidth={1.6} />, label: 'Templates' },
+    { id: 'settings' as Tab, icon: <SettingsIcon style={{ width: 13, height: 13 }} strokeWidth={1.6} />, label: 'Settings' },
+  ]), []);
+
   return (
     <div className="popup-container">
       <div className="glow glow-top" />
       <div className="glow glow-bottom" />
 
-      <header className="header">
-        <div className="header-brand">
-          <div className="header-icon-wrap">
-            <Sparkles className="header-icon" strokeWidth={1.5} />
-          </div>
-          <div>
-            <h1 className="header-title">PromptEnhancer Pro</h1>
-            <p className="header-subtitle">Active · v2.0</p>
-          </div>
-        </div>
-      </header>
+      <Header user={auth.user} onLogout={onLogout} onOpenLogin={onOpenLogin} />
 
       <nav className="tab-nav">
-        {[
-          { id: 'home' as Tab, icon: <ShieldCheck style={{ width: 14, height: 14 }} strokeWidth={1.5} />, label: 'Home' },
-          { id: 'history' as Tab, icon: <History style={{ width: 14, height: 14 }} strokeWidth={1.5} />, label: 'History' },
-          { id: 'templates' as Tab, icon: <BookTemplate style={{ width: 14, height: 14 }} strokeWidth={1.5} />, label: 'Templates' },
-          { id: 'settings' as Tab, icon: <Settings style={{ width: 14, height: 14 }} strokeWidth={1.5} />, label: 'Settings' },
-        ].map((tab) => (
-          <button key={tab.id} className={`tab-btn ${activeTab === tab.id ? 'tab-active' : ''}`} onClick={() => setActiveTab(tab.id)}>
-            {tab.icon}<span>{tab.label}</span>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={`tab-btn ${activeTab === tab.id ? 'tab-active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.icon}
+            <span>{tab.label}</span>
           </button>
         ))}
       </nav>
 
       <main className="main-content">
         <AnimatePresence mode="wait">
-
-          {/* ============ HOME TAB ============ */}
           {activeTab === 'home' && (
-            <motion.div key="home" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
-              <div className="stats-bar">
-                <div className="stat-item"><span className="stat-value">{stats.total}</span><span className="stat-label">Total</span></div>
-                <div className="stat-divider" />
-                <div className="stat-item"><span className="stat-value">{stats.today}</span><span className="stat-label">Today</span></div>
-                <div className="stat-divider" />
-                <div className="stat-item">
-                  <span className="stat-value" style={{ color: hasApiKey ? '#10B981' : '#EF4444', fontSize: 11 }}>
-                    {hasApiKey ? apiSettings.provider.toUpperCase() : 'NO KEY'}
-                  </span>
-                  <span className="stat-label">Provider</span>
-                </div>
-              </div>
-
-              {!hasApiKey && (
-                <div className="warn-card">
-                  <AlertCircle style={{ width: 16, height: 16, color: '#F59E0B', flexShrink: 0, marginTop: 1 }} strokeWidth={1.5} />
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#FAFAFA', marginBottom: 2 }}>API Key Required</div>
-                    <div style={{ fontSize: 11, color: '#71717A' }}>
-                      Go to <strong style={{ color: '#A78BFA' }}>Settings</strong> tab and add your free Groq or Gemini API key to start enhancing.
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {hasApiKey && (
-                <div className="ready-card">
-                  <div className="ready-icon">
-                    <Check style={{ width: 16, height: 16, color: '#10B981' }} strokeWidth={2.5} />
-                  </div>
-                  <div>
-                    <div className="ready-title">Ready to Enhance</div>
-                    <div className="ready-sub">
-                      {apiSettings.provider === 'groq' ? '⚡ Groq' : '✦ Gemini'} · {apiSettings.model || (apiSettings.provider === 'groq' ? 'Llama 3.3 70B' : 'Gemini 2.0 Flash')}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="card" style={{ marginTop: 0 }}>
-                <div className="how-title">How to Use</div>
-                <div className="how-step"><span className="how-num">1</span><span>Go to any AI chat (Claude, ChatGPT, Gemini…)</span></div>
-                <div className="how-step"><span className="how-num">2</span><span>Click the <Sparkles style={{ width: 12, height: 12, color: '#8B5CF6', display: 'inline' }} /> button on the text input</span></div>
-                <div className="how-step" style={{ marginBottom: 0 }}><span className="how-num">3</span><span>Pick a mode — your prompt is enhanced instantly ✨</span></div>
-              </div>
-
-              <div className="card" style={{ marginTop: 10 }}>
-                <div className="how-title" style={{ marginBottom: 10 }}>Enhancement Modes</div>
-                <div className="mode-grid">
-                  {MODE_GUIDE.map((m) => (
-                    <div key={m.mode} className="mode-row">
-                      <div className="mode-dot" style={{ background: m.color }} />
-                      <div className="mode-name" style={{ color: m.color }}>{m.mode}</div>
-                      <div className="mode-desc">{m.desc}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </motion.div>
+            <HomeTab
+              user={auth.user}
+              cloudSettings={cloudSettings}
+              history={history}
+              setActiveTab={setActiveTab}
+            />
           )}
-
-          {/* ============ HISTORY TAB ============ */}
+          {activeTab === 'enhance' && (
+            <EnhanceTab cloudSettings={cloudSettings} onResult={onAddHistory} />
+          )}
           {activeTab === 'history' && (
-            <motion.div key="history" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
-              {history.length === 0 ? (
-                <div className="empty-state">
-                  <Clock style={{ width: 32, height: 32, color: '#3F3F46' }} strokeWidth={1} />
-                  <p>No history yet</p>
-                  <span>Enhanced prompts appear here</span>
-                </div>
-              ) : (
-                <>
-                  <div className="history-header">
-                    <span className="history-count">{history.length} enhancements</span>
-                    <button className="text-btn danger" onClick={clearHistory}><Trash2 style={{ width: 12, height: 12 }} /> Clear All</button>
-                  </div>
-                  <div className="history-list">
-                    {history.slice(0, 20).map((item) => (
-                      <div key={item.id} className="history-item">
-                        <div className="history-item-header">
-                          <div className="history-item-meta">
-                            {getTypeIcon(item.type)}
-                            <span className="history-type">{item.type}</span>
-                            <span className="history-time">{formatTime(item.timestamp)}</span>
-                          </div>
-                          <button className="icon-btn" onClick={() => copyToClipboard(item.enhanced, item.id)}>
-                            {copiedId === item.id
-                              ? <Check style={{ width: 12, height: 12, color: '#10B981' }} strokeWidth={2} />
-                              : <Copy style={{ width: 12, height: 12 }} strokeWidth={1.5} />}
-                          </button>
-                        </div>
-                        <div className="history-original">{item.original.substring(0, 80)}{item.original.length > 80 ? '…' : ''}</div>
-                        <div className="history-enhanced">
-                          <ChevronRight style={{ width: 10, height: 10, color: '#8B5CF6', flexShrink: 0 }} />
-                          {item.enhanced.substring(0, 120)}{item.enhanced.length > 120 ? '…' : ''}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </motion.div>
+            <HistoryTab
+              history={history}
+              onDelete={onDeleteHistory}
+              onClearAll={onClearHistory}
+            />
           )}
-
-          {/* ============ TEMPLATES TAB ============ */}
           {activeTab === 'templates' && (
-            <motion.div key="templates" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
-              <div className="search-bar">
-                <Search style={{ width: 14, height: 14, color: '#52525B' }} strokeWidth={1.5} />
-                <input type="text" className="search-input" placeholder="Search templates…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-              </div>
-              <div style={{ marginBottom: 8, fontSize: 11, color: '#52525B', paddingLeft: 2 }}>
-                Type a shortcut (e.g. <code style={{ background: '#27272A', padding: '1px 4px', borderRadius: 3, color: '#A78BFA' }}>//code</code>) in any AI chat to auto-insert.
-              </div>
-              <div className="template-list">
-                {filteredTemplates.map((t) => (
-                  <div key={t.id} className="template-item">
-                    <div className="template-header">
-                      <span className="template-shortcut">{t.shortcut}</span>
-                      <span className="template-category">{t.category}</span>
-                    </div>
-                    <div className="template-title">{t.title}</div>
-                    <div className="template-content">{t.content.substring(0, 90)}…</div>
-                    <button className="template-copy-btn" onClick={() => copyToClipboard(t.content, t.id)}>
-                      {copiedId === t.id
-                        ? <><Check style={{ width: 12, height: 12, color: '#10B981' }} strokeWidth={2} /> Copied!</>
-                        : <><Copy style={{ width: 12, height: 12 }} strokeWidth={1.5} /> Copy</>}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </motion.div>
+            <TemplatesTab
+              templates={templates}
+              isLoggedIn={!!auth.user}
+              onCreate={onCreateTemplate}
+              onUpdate={onUpdateTemplate}
+              onDelete={onDeleteTemplate}
+            />
           )}
-
-          {/* ============ SETTINGS TAB ============ */}
           {activeTab === 'settings' && (
-            <motion.div key="settings" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.15 }}>
-
-              {/* ---- BYOK Section ---- */}
-              <div className="card">
-                <label className="card-label">AI Provider & API Key</label>
-                <p className="card-description" style={{ marginBottom: 10 }}>
-                  Use your own free API key — no subscription, no limits.
-                </p>
-
-                {/* Provider toggle */}
-                <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-                  {(['groq', 'gemini'] as Provider[]).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => { setApiProvider(p); setApiModel(''); }}
-                      style={{
-                        flex: 1, padding: '7px 10px', borderRadius: 8,
-                        border: apiProvider === p ? '1px solid #7C3AED' : '1px solid rgba(255,255,255,0.08)',
-                        background: apiProvider === p ? 'rgba(124,58,237,0.15)' : 'transparent',
-                        color: apiProvider === p ? '#A78BFA' : '#71717A',
-                        fontSize: 12, fontWeight: apiProvider === p ? 600 : 400,
-                        cursor: 'pointer', fontFamily: 'inherit',
-                      }}
-                    >
-                      {p === 'groq' ? '⚡ Groq' : '✦ Gemini'}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Model selector */}
-                <div style={{ marginBottom: 10 }}>
-                  <div className="card-description" style={{ marginBottom: 4, fontSize: 10 }}>Model</div>
-                  <select
-                    value={apiModel}
-                    onChange={(e) => setApiModel(e.target.value)}
-                    style={{
-                      width: '100%', padding: '7px 10px', background: '#09090B',
-                      border: '1px solid #27272A', borderRadius: 8, color: '#FAFAFA',
-                      fontSize: 12, fontFamily: 'inherit', cursor: 'pointer', outline: 'none',
-                    }}
-                  >
-                    <option value="">Default (Recommended)</option>
-                    {(apiProvider === 'groq' ? GROQ_MODELS : GEMINI_MODELS).map((m) => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* API Key input */}
-                <div style={{ position: 'relative', marginBottom: 8 }}>
-                  <div className="card-description" style={{ marginBottom: 4, fontSize: 10 }}>
-                    API Key {apiProvider === 'groq' ? '(starts with gsk_…)' : '(starts with AIza…)'}
-                  </div>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type={showApiKey ? 'text' : 'password'}
-                      className="input"
-                      placeholder={apiProvider === 'groq' ? 'gsk_…' : 'AIza…'}
-                      value={apiKeyInput}
-                      onChange={(e) => setApiKeyInput(e.target.value)}
-                      spellCheck={false}
-                      autoComplete="off"
-                      style={{ paddingRight: 36, fontSize: 12, fontFamily: 'monospace' }}
-                    />
-                    <button
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      style={{
-                        position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                        background: 'transparent', border: 'none', cursor: 'pointer', color: '#52525B', padding: 4,
-                      }}
-                    >
-                      {showApiKey
-                        ? <EyeOff style={{ width: 14, height: 14 }} strokeWidth={1.5} />
-                        : <Eye style={{ width: 14, height: 14 }} strokeWidth={1.5} />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Verify key */}
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
-                  <button
-                    onClick={verifyApiKey}
-                    disabled={verifyStatus === 'loading' || !apiKeyInput.trim()}
-                    style={{
-                      flex: 1, padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600,
-                      border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)',
-                      color: verifyStatus === 'ok' ? '#10B981' : verifyStatus === 'error' ? '#EF4444' : '#A1A1AA',
-                      cursor: verifyStatus === 'loading' || !apiKeyInput.trim() ? 'not-allowed' : 'pointer',
-                      fontFamily: 'inherit', opacity: !apiKeyInput.trim() ? 0.4 : 1,
-                    }}
-                  >
-                    {verifyStatus === 'loading' ? '⏳ Verifying…' : verifyStatus === 'ok' ? '✓ Valid' : verifyStatus === 'error' ? '✗ Invalid' : 'Verify Key'}
-                  </button>
-                  {verifyMsg && (
-                    <span style={{ fontSize: 10, color: verifyStatus === 'ok' ? '#10B981' : '#EF4444' }}>
-                      {verifyMsg}
-                    </span>
-                  )}
-                </div>
-
-                {/* Get API key links */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 12 }}>
-                  <a
-                    href="https://console.groq.com/keys"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: 11, color: '#8B5CF6', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
-                  >
-                    <ExternalLink style={{ width: 10, height: 10 }} strokeWidth={1.5} />
-                    Get free Groq API key (14,400 req/day) →
-                  </a>
-                  <a
-                    href="https://aistudio.google.com/apikey"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ fontSize: 11, color: '#8B5CF6', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}
-                  >
-                    <ExternalLink style={{ width: 10, height: 10 }} strokeWidth={1.5} />
-                    Get free Gemini API key →
-                  </a>
-                </div>
-
-                <button onClick={saveApiSettings} className="btn-primary" style={{ marginTop: 4 }}>
-                  {apiKeySaved ? '✓ Saved' : 'Save API Settings'}
-                </button>
-
-                {apiSettings.apiKey && (
-                  <p style={{ marginTop: 6, fontSize: 11, color: '#10B981' }}>
-                    ✓ API key configured · {apiSettings.provider}
-                  </p>
-                )}
-              </div>
-
-              {/* ---- Backend URL ---- */}
-              <div className="card">
-                <label className="card-label">Backend Server URL</label>
-                <p className="card-description" style={{ marginBottom: 8 }}>
-                  Point to your deployed PromptEnhancer backend.
-                </p>
-                <div className="input-group">
-                  <input type="text" className="input" placeholder="https://promptenhancer-backend.onrender.com" value={backendUrlInput} onChange={(e) => setBackendUrlInput(e.target.value)} spellCheck={false} />
-                </div>
-                <button onClick={saveBackendUrl} disabled={!backendUrlInput.trim() || backendUrlInput.trim() === backendUrl} className="btn-primary" style={{ marginTop: 8 }}>
-                  {urlSaved ? '✓ Saved' : 'Save URL'}
-                </button>
-                <p style={{ marginTop: 6, fontSize: 11, color: '#52525B' }}>
-                  Current: <span style={{ color: '#A1A1AA' }}>{backendUrl}</span>
-                </p>
-              </div>
-
-              <div className="card">
-                <div className="setting-item">
-                  <div>
-                    <div className="setting-label">Supported Sites</div>
-                    <div className="setting-desc">ChatGPT, Claude, Gemini + any site</div>
-                  </div>
-                  <div className="setting-badge active">7+</div>
-                </div>
-              </div>
-
-              <div className="card about-card">
-                <div className="setting-label">About</div>
-                <div className="setting-desc" style={{ marginTop: 4 }}>
-                  PromptEnhancer Pro v2.0 · BYOK · Admin-approved · Groq + Gemini
-                </div>
-                <div style={{ marginTop: 8, fontSize: 11, color: '#52525B' }}>
-                  Need access?{' '}
-                  <a href="https://promptenhancer-frontend.vercel.app/request-access" target="_blank" rel="noopener noreferrer" style={{ color: '#8B5CF6' }}>
-                    Request it here →
-                  </a>
-                </div>
-              </div>
-
-            </motion.div>
+            <SettingsTab
+              user={auth.user}
+              cloudSettings={cloudSettings}
+              localSettings={localSettings}
+              onCloudPatch={onCloudPatch}
+              onLocalPatch={onLocalPatch}
+              onVerifyKey={onVerifyKey}
+              onLogout={onLogout}
+              onOpenLogin={onOpenLogin}
+              onResyncFromCloud={onResyncFromCloud}
+            />
           )}
-
         </AnimatePresence>
       </main>
 
       <footer className="footer">
         <div className={`status-dot ${hasApiKey ? 'active' : ''}`} />
-        {hasApiKey ? `${apiSettings.provider === 'groq' ? '⚡ Groq' : '✦ Gemini'} ready` : 'API key required — see Settings'}
+        {hasApiKey
+          ? `${cloudSettings.preferred_provider === 'groq' ? '⚡ Groq' : '✦ Gemini'} ready${auth.user ? ' · synced' : ' · local'}`
+          : 'API key required — see Settings'}
       </footer>
     </div>
   );

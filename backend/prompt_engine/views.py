@@ -13,7 +13,14 @@ from django.views.decorators.http import require_http_methods
 from decouple import config
 from rest_framework import viewsets
 
-from .models import AccessRequest, EnhancementLog, PromptTemplate, UserProfile
+from .models import (
+    AccessRequest,
+    EnhancementHistory,
+    EnhancementLog,
+    PromptTemplate,
+    UserProfile,
+    UserTemplate,
+)
 from .serializers import PromptTemplateSerializer
 
 # ======================== SYSTEM PROMPTS ========================
@@ -679,3 +686,371 @@ def health_check(request):
         return JsonResponse({'status': 'ok', 'db': 'ok'})
     except Exception as exc:
         return JsonResponse({'status': 'error', 'db': str(exc)}, status=503)
+
+
+# ======================== EXTENSION API ========================
+
+
+DEFAULT_TEMPLATE_SEED = [
+    {'shortcut': '//code', 'title': 'Code Expert', 'category': 'coding',
+     'content': 'You are an expert programmer. Write clean, well-documented, production-ready code for: '},
+    {'shortcut': '//debug', 'title': 'Debug Helper', 'category': 'coding',
+     'content': 'Analyze the following code and identify bugs, performance issues, and suggest fixes with explanations: '},
+    {'shortcut': '//review', 'title': 'Code Review', 'category': 'coding',
+     'content': 'Perform a thorough code review. Check for security issues, edge cases, naming conventions, and best practices: '},
+    {'shortcut': '//refactor', 'title': 'Refactor Code', 'category': 'coding',
+     'content': 'Refactor the following code to improve readability, performance, and maintainability. Explain each change: '},
+    {'shortcut': '//test', 'title': 'Write Tests', 'category': 'coding',
+     'content': 'Write comprehensive unit tests for the following code. Cover edge cases, error handling, and happy paths: '},
+    {'shortcut': '//email', 'title': 'Professional Email', 'category': 'writing',
+     'content': 'Write a professional, concise email about the following topic. Use appropriate tone and formatting: '},
+    {'shortcut': '//blog', 'title': 'Blog Post', 'category': 'writing',
+     'content': 'Write an engaging, SEO-optimized blog post about the following topic. Include headers, bullet points, and a call to action: '},
+    {'shortcut': '//summarize', 'title': 'Summarize', 'category': 'analysis',
+     'content': 'Provide a clear, structured summary of the following content. Include key points, takeaways, and action items: '},
+    {'shortcut': '//compare', 'title': 'Compare & Contrast', 'category': 'analysis',
+     'content': 'Create a detailed comparison of the following items. Include a table, pros/cons, and a recommendation: '},
+    {'shortcut': '//explain', 'title': 'Explain Simply', 'category': 'learning',
+     'content': 'Explain the following concept in simple terms that a beginner would understand. Use analogies and examples: '},
+    {'shortcut': '//brainstorm', 'title': 'Brainstorm Ideas', 'category': 'creative',
+     'content': 'Generate 10 creative and unique ideas for the following. Think outside the box and include brief explanations: '},
+    {'shortcut': '//pitch', 'title': 'Elevator Pitch', 'category': 'business',
+     'content': 'Create a compelling 60-second elevator pitch for the following product/idea. Focus on the value proposition: '},
+    {'shortcut': '//seo', 'title': 'SEO Content', 'category': 'marketing',
+     'content': 'Optimize the following content for SEO. Include keyword suggestions, meta description, and heading structure: '},
+    {'shortcut': '//tweet', 'title': 'Twitter Thread', 'category': 'social',
+     'content': 'Create an engaging Twitter/X thread (5-8 tweets) about the following topic. Make it viral-worthy: '},
+    {'shortcut': '//linkedin', 'title': 'LinkedIn Post', 'category': 'social',
+     'content': 'Write a professional LinkedIn post about the following. Include a hook, story, insight, and CTA: '},
+]
+
+
+def _seed_user_templates(user):
+    """Seed default templates for a new user (idempotent)."""
+    if UserTemplate.objects.filter(user=user).exists():
+        return
+    UserTemplate.objects.bulk_create([
+        UserTemplate(user=user, is_default=True, **t) for t in DEFAULT_TEMPLATE_SEED
+    ])
+
+
+def _user_payload(user):
+    initials = (user.first_name[:1] + (user.last_name[:1] if user.last_name else '')).upper() or user.username[:2].upper()
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return {
+        'id': user.id,
+        'name': user.first_name or user.username,
+        'email': user.email,
+        'username': user.username,
+        'initials': initials,
+        'is_staff': user.is_staff,
+        'is_superuser': user.is_superuser,
+        'total_enhancements': profile.total_enhancements,
+        'joined': user.date_joined.isoformat() if user.date_joined else None,
+    }
+
+
+def _settings_payload(profile: UserProfile):
+    return {
+        'preferred_provider': profile.preferred_provider,
+        'preferred_model': profile.preferred_model,
+        'groq_api_key': profile.groq_api_key,
+        'gemini_api_key': profile.gemini_api_key,
+        'theme': profile.theme,
+        'density': profile.density,
+        'cloud_sync_enabled': profile.cloud_sync_enabled,
+    }
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def extension_login(request):
+    """Login from the Chrome extension. Any active user (not staff-only)."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    try:
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+        password = data.get('password', '')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request'}, status=400)
+
+    if not email or not password:
+        return JsonResponse({'error': 'Email and password are required'}, status=400)
+
+    user_obj = User.objects.filter(email=email).first()
+    if not user_obj:
+        access = AccessRequest.objects.filter(email=email).first()
+        if access:
+            return JsonResponse({
+                'error': 'No account yet',
+                'access_status': access.status,
+                'pending': access.status == AccessRequest.STATUS_PENDING,
+            }, status=403)
+        return JsonResponse({'error': 'No account found. Request access first.'}, status=404)
+
+    user = authenticate(request, username=user_obj.username, password=password)
+    if not user or not user.is_active:
+        return JsonResponse({'error': 'Invalid email or password'}, status=401)
+
+    if _is_admin_email(user.email):
+        needs_save = []
+        if not user.is_staff:
+            user.is_staff = True
+            needs_save.append('is_staff')
+        if not user.is_superuser:
+            user.is_superuser = True
+            needs_save.append('is_superuser')
+        if needs_save:
+            user.save(update_fields=needs_save)
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    _seed_user_templates(user)
+
+    from rest_framework.authtoken.models import Token
+    token, _ = Token.objects.get_or_create(user=user)
+
+    return JsonResponse({
+        'token': token.key,
+        'user': _user_payload(user),
+        'settings': _settings_payload(profile),
+    })
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def extension_check_access(request):
+    """Check if an email has an access request and its status."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    try:
+        data = json.loads(request.body)
+        email = data.get('email', '').strip().lower()
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid request'}, status=400)
+    if not email:
+        return JsonResponse({'error': 'Email is required'}, status=400)
+
+    user = User.objects.filter(email=email).first()
+    if user:
+        return JsonResponse({'has_account': True, 'status': 'approved'})
+
+    access = AccessRequest.objects.filter(email=email).first()
+    if not access:
+        return JsonResponse({'has_account': False, 'status': 'none'})
+
+    return JsonResponse({'has_account': False, 'status': access.status})
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'OPTIONS'])
+def extension_me(request):
+    """Get current user info + cloud-synced settings."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _get_user_from_token(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return JsonResponse({
+        'user': _user_payload(user),
+        'settings': _settings_payload(profile),
+    })
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'PATCH', 'OPTIONS'])
+def extension_settings(request):
+    """Get or update cloud-synced user settings."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _get_user_from_token(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+
+    if request.method == 'GET':
+        return JsonResponse({'settings': _settings_payload(profile)})
+
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    allowed = {
+        'preferred_provider', 'preferred_model',
+        'groq_api_key', 'gemini_api_key',
+        'theme', 'density', 'cloud_sync_enabled',
+    }
+    dirty = []
+    for key, value in data.items():
+        if key not in allowed:
+            continue
+        if key == 'preferred_provider' and value not in ('groq', 'gemini'):
+            continue
+        if key == 'theme' and value not in ('dark', 'light', 'auto'):
+            continue
+        if key == 'density' and value not in ('comfortable', 'compact'):
+            continue
+        setattr(profile, key, value)
+        dirty.append(key)
+    if dirty:
+        profile.save(update_fields=dirty + ['updated_at'])
+
+    return JsonResponse({'settings': _settings_payload(profile)})
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST', 'DELETE', 'OPTIONS'])
+def extension_history(request):
+    """Get, append to, or clear cloud-synced enhancement history."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _get_user_from_token(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    if request.method == 'GET':
+        try:
+            limit = max(1, min(200, int(request.GET.get('limit', '50'))))
+        except ValueError:
+            limit = 50
+        entries = list(
+            EnhancementHistory.objects.filter(user=user)[:limit].values(
+                'id', 'action', 'provider', 'model_used',
+                'original_text', 'enhanced_text', 'domain', 'created_at',
+            )
+        )
+        return JsonResponse({'entries': entries}, json_dumps_params={'default': str})
+
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'error': 'Invalid JSON'}, status=400)
+        entry = EnhancementHistory.objects.create(
+            user=user,
+            action=str(data.get('action', 'Enhance'))[:50],
+            provider=str(data.get('provider', 'gemini'))[:20],
+            model_used=str(data.get('model', ''))[:100],
+            original_text=str(data.get('original', ''))[:20000],
+            enhanced_text=str(data.get('enhanced', ''))[:20000],
+            domain=str(data.get('domain', ''))[:255],
+        )
+        # Trim to last 200 per user
+        excess = EnhancementHistory.objects.filter(user=user).order_by('-created_at')[200:].values_list('id', flat=True)
+        if excess:
+            EnhancementHistory.objects.filter(id__in=list(excess)).delete()
+        return JsonResponse({
+            'entry': {
+                'id': entry.id,
+                'action': entry.action,
+                'provider': entry.provider,
+                'model_used': entry.model_used,
+                'original_text': entry.original_text,
+                'enhanced_text': entry.enhanced_text,
+                'domain': entry.domain,
+                'created_at': entry.created_at.isoformat(),
+            }
+        })
+
+    # DELETE
+    entry_id = request.GET.get('id')
+    if entry_id:
+        EnhancementHistory.objects.filter(user=user, id=entry_id).delete()
+    else:
+        EnhancementHistory.objects.filter(user=user).delete()
+    return JsonResponse({'success': True})
+
+
+@csrf_exempt
+@require_http_methods(['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'])
+def extension_templates(request):
+    """Per-user template CRUD."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _get_user_from_token(request)
+    if not user:
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+    if request.method == 'GET':
+        _seed_user_templates(user)
+        templates = list(
+            UserTemplate.objects.filter(user=user).values(
+                'id', 'shortcut', 'title', 'content', 'category', 'is_default'
+            )
+        )
+        return JsonResponse({'templates': templates})
+
+    try:
+        data = json.loads(request.body) if request.body else {}
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    if request.method == 'POST':
+        shortcut = (data.get('shortcut') or '').strip()
+        title = (data.get('title') or '').strip()
+        content = (data.get('content') or '').strip()
+        category = (data.get('category') or 'custom').strip() or 'custom'
+        if not shortcut or not title or not content:
+            return JsonResponse({'error': 'shortcut, title, and content are required'}, status=400)
+        if not shortcut.startswith('//'):
+            shortcut = '//' + shortcut.lstrip('/')
+        if UserTemplate.objects.filter(user=user, shortcut=shortcut).exists():
+            return JsonResponse({'error': f'Shortcut {shortcut} already exists'}, status=409)
+        tpl = UserTemplate.objects.create(
+            user=user, shortcut=shortcut[:50], title=title[:255],
+            content=content, category=category[:50], is_default=False,
+        )
+        return JsonResponse({
+            'template': {
+                'id': tpl.id, 'shortcut': tpl.shortcut, 'title': tpl.title,
+                'content': tpl.content, 'category': tpl.category, 'is_default': False,
+            }
+        })
+
+    tpl_id = data.get('id') or request.GET.get('id')
+    if not tpl_id:
+        return JsonResponse({'error': 'Template id required'}, status=400)
+    try:
+        tpl = UserTemplate.objects.get(user=user, id=tpl_id)
+    except UserTemplate.DoesNotExist:
+        return JsonResponse({'error': 'Template not found'}, status=404)
+
+    if request.method == 'DELETE':
+        tpl.delete()
+        return JsonResponse({'success': True})
+
+    # PATCH
+    dirty = []
+    for field in ('shortcut', 'title', 'content', 'category'):
+        if field in data:
+            value = (data.get(field) or '').strip()
+            if field == 'shortcut' and value and not value.startswith('//'):
+                value = '//' + value.lstrip('/')
+            setattr(tpl, field, value[:255] if field in ('title',) else value[:50] if field in ('shortcut', 'category') else value)
+            dirty.append(field)
+    if dirty:
+        tpl.is_default = False
+        dirty.append('is_default')
+        tpl.save(update_fields=dirty + ['updated_at'])
+    return JsonResponse({
+        'template': {
+            'id': tpl.id, 'shortcut': tpl.shortcut, 'title': tpl.title,
+            'content': tpl.content, 'category': tpl.category, 'is_default': tpl.is_default,
+        }
+    })
+
+
+@csrf_exempt
+@require_http_methods(['POST', 'OPTIONS'])
+def extension_logout(request):
+    """Invalidate the extension's token."""
+    if request.method == 'OPTIONS':
+        return JsonResponse({})
+    user = _get_user_from_token(request)
+    if user:
+        from rest_framework.authtoken.models import Token
+        Token.objects.filter(user=user).delete()
+    return JsonResponse({'success': True})

@@ -68,14 +68,75 @@ class UserProfile(models.Model):
         (PROVIDER_GEMINI, 'Google Gemini'),
     ]
 
+    THEME_DARK = 'dark'
+    THEME_LIGHT = 'light'
+    THEME_AUTO = 'auto'
+    THEME_CHOICES = [(THEME_DARK, 'Dark'), (THEME_LIGHT, 'Light'), (THEME_AUTO, 'Auto')]
+
+    DENSITY_COMFORTABLE = 'comfortable'
+    DENSITY_COMPACT = 'compact'
+    DENSITY_CHOICES = [(DENSITY_COMFORTABLE, 'Comfortable'), (DENSITY_COMPACT, 'Compact')]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     invite_code = models.ForeignKey(InviteCode, on_delete=models.SET_NULL, null=True, blank=True)
+
+    # AI provider preferences (cloud-synced)
     preferred_provider = models.CharField(max_length=20, choices=PROVIDER_CHOICES, default=PROVIDER_GEMINI)
+    preferred_model = models.CharField(max_length=100, blank=True)
+    groq_api_key = models.CharField(max_length=255, blank=True)
+    gemini_api_key = models.CharField(max_length=255, blank=True)
+
+    # UI preferences (cloud-synced)
+    theme = models.CharField(max_length=10, choices=THEME_CHOICES, default=THEME_DARK)
+    density = models.CharField(max_length=15, choices=DENSITY_CHOICES, default=DENSITY_COMFORTABLE)
+    cloud_sync_enabled = models.BooleanField(default=True)
+
     total_enhancements = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username}'s profile"
+
+
+class EnhancementHistory(models.Model):
+    """Per-user, cloud-synced enhancement history (stores full text)."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='history_entries')
+    action = models.CharField(max_length=50)
+    provider = models.CharField(max_length=20, default='gemini')
+    model_used = models.CharField(max_length=100, blank=True)
+    original_text = models.TextField()
+    enhanced_text = models.TextField()
+    domain = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at'], name='prompt_engi_user_hist_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.action} for {self.user.username} at {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class UserTemplate(models.Model):
+    """Per-user custom templates (cloud-synced)."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='templates')
+    shortcut = models.CharField(max_length=50)
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+    category = models.CharField(max_length=50, default='custom')
+    is_default = models.BooleanField(default=False, help_text='Seeded from defaults')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['category', 'shortcut']
+        unique_together = [('user', 'shortcut')]
+
+    def __str__(self):
+        return f"{self.shortcut} ({self.user.username})"
 
 
 class EnhancementLog(models.Model):
