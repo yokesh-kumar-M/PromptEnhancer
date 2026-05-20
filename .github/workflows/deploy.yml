@@ -157,6 +157,8 @@ jobs:
     name: GitHub Release
     needs: [backend-ci, frontend-deploy, extension-build, vscode-build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -188,7 +190,6 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "PromptEnhancer Pro ${{ steps.version.outputs.tag }}"
-          generate_release_notes: true
           files: |
             release-assets/prompt-enhancer-chrome.zip
             release-assets/prompt-enhancer-vscode.vsix
